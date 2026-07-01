@@ -1,0 +1,42 @@
+import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { Card, CardContent } from "@/components/ui/card";
+import { StaffClient } from "./client";
+
+export default async function OperatorStaff() {
+  const supabase = await createClient();
+
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+  if (!authUser) redirect("/login");
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("role, operator_id")
+    .eq("id", authUser.id)
+    .single();
+
+  if (profile?.role !== "operator_admin" || !profile?.operator_id) {
+    redirect("/login");
+  }
+
+  const { data: staff, error } = await supabase
+    .from("users")
+    .select("*")
+    .eq("operator_id", profile.operator_id)
+    .in("role", ["driver", "conductor"])
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent>
+          <p className="text-red-600">Failed to load staff: {error.message}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return <StaffClient staff={staff ?? []} operatorId={profile.operator_id} />;
+}
