@@ -112,7 +112,7 @@ export function Sidebar({
         <div className="flex items-center gap-2.5 min-w-0">
           {/* Bus icon logo */}
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white">
-            <img src="../assets/images/Logo.png" alt="BusExpress Logo" />
+            <img src="../assets/images/bus.png" alt="BusExpress Logo" />
           </div>
           {expanded && (
             <span className="text-sm font-bold tracking-tight text-[#0F172A] whitespace-nowrap overflow-hidden">
