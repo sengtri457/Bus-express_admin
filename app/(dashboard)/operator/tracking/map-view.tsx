@@ -235,13 +235,30 @@ const destIcon = L.divIcon({
   iconAnchor: [11, 34],
 });
 
+function haversineKm( lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(km: number): string {
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  return `${km.toFixed(1)} km`;
+}
+
 // ── Stored route state per driver ──────────────────────────────────────────
 type RouteState = {
-  fullRoute: [number, number][];  // road polyline from initial busPos → destination
-  routeLine: L.Polyline;          // blue road line (bus → destination)
+  fullRoute: [number, number][];     // road polyline from initial busPos → destination
+  routeLine: L.Polyline;             // blue road line (remaining → destination)
+  travelledLine: L.Polyline;         // gray road line (origin → travelled)
+  directLine: L.Polyline;            // thin straight line bus → destination
+  directLabel: L.Marker;             // distance label at midpoint of direct line
   arrows: L.Marker[];
-  originMarker: L.Marker;         // green pulsing dot — lives at current bus GPS
+  originMarker: L.Marker;            // green pulsing dot — lives at current bus GPS
   destMarker: L.Marker;
+  destLabel: L.Marker;               // destination name label
   destCoord: [number, number];
 };
 
@@ -249,8 +266,12 @@ function clearRoute(map: L.Map, routes: Map<string, RouteState>, id: string) {
   const r = routes.get(id);
   if (!r) return;
   map.removeLayer(r.routeLine);
+  map.removeLayer(r.travelledLine);
+  map.removeLayer(r.directLine);
+  map.removeLayer(r.directLabel);
   map.removeLayer(r.originMarker);
   map.removeLayer(r.destMarker);
+  map.removeLayer(r.destLabel);
   r.arrows.forEach((a) => map.removeLayer(a));
   routes.delete(id);
 }
@@ -369,22 +390,52 @@ export default function MapView({ drivers, selectedDriverId, onDriverSelect }: P
       const existingRoute = routes.get(driver.id);
 
       if (existingRoute) {
-        // ── Bus moved: update origin dot + route line ──────────────────────
-        // Origin marker follows the bus live position
+        // ── Bus moved: update origin dot + route lines ─────────────────────
         existingRoute.originMarker.setLatLng(latlng);
 
         // Split the original route at the closest point to the bus
-        const { remaining } = splitRouteAtBus(existingRoute.fullRoute, latlng);
-        
-        let updatedPts: [number, number][] = remaining.length >= 2
+        const { travelled, remaining } = splitRouteAtBus(existingRoute.fullRoute, latlng);
+
+        // Update travelled line (gray — already passed)
+        const travelledPts: [number, number][] = travelled.length >= 2
+          ? travelled
+          : [];
+        if (travelledPts.length >= 2) {
+          existingRoute.travelledLine.setLatLngs(travelledPts);
+        }
+
+        // Update remaining line (blue — still to go)
+        const remainingPts: [number, number][] = remaining.length >= 2
           ? [latlng, ...remaining.slice(1)]
           : [latlng, existingRoute.destCoord];
 
-        existingRoute.routeLine.setLatLngs(updatedPts);
+        existingRoute.routeLine.setLatLngs(remainingPts);
 
-        // Refresh direction arrows
+        // Update direct (straight) line bus → destination
+        existingRoute.directLine.setLatLngs([latlng, existingRoute.destCoord]);
+
+        // Update direct distance label at midpoint
+        const midLat = (latlng[0] + existingRoute.destCoord[0]) / 2;
+        const midLng = (latlng[1] + existingRoute.destCoord[1]) / 2;
+        const distKm = haversineKm(latlng[0], latlng[1], existingRoute.destCoord[0], existingRoute.destCoord[1]);
+        existingRoute.directLabel.setLatLng([midLat, midLng]);
+        existingRoute.directLabel.setIcon(L.divIcon({
+          className: "",
+          html: `<div style="
+            background:rgba(15,23,42,0.85);
+            color:white;font-size:10px;font-weight:600;
+            padding:2px 7px;border-radius:5px;
+            white-space:nowrap;
+            box-shadow:0 1px 4px rgba(0,0,0,0.2);
+            pointer-events:none;
+          ">● ${formatDistance(distKm)}</div>`,
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
+        }));
+
+        // Refresh direction arrows on remaining segment
         existingRoute.arrows.forEach((a) => map.removeLayer(a));
-        existingRoute.arrows = placeArrows(map, updatedPts, "#1d4ed8");
+        existingRoute.arrows = placeArrows(map, remainingPts, "#1d4ed8");
 
         // Check if bus has deviated from the route by more than ~800 meters (0.008 degrees)
         let needsRefetch = false;
@@ -407,7 +458,8 @@ export default function MapView({ drivers, selectedDriverId, onDriverSelect }: P
               if (newRoute.length >= 2) {
                 existingRoute.fullRoute = newRoute;
                 existingRoute.routeLine.setLatLngs(newRoute);
-                
+                existingRoute.travelledLine.setLatLngs([]);
+
                 // Refresh direction arrows
                 existingRoute.arrows.forEach((a) => map.removeLayer(a));
                 existingRoute.arrows = placeArrows(map, newRoute, "#1d4ed8");
@@ -421,7 +473,6 @@ export default function MapView({ drivers, selectedDriverId, onDriverSelect }: P
 
       } else if (!fetching.has(driver.id) && driver.trip) {
         // ── First time: fetch road route bus→destination ─────────────────────
-        // Origin = bus current GPS position (live, dynamic)
         fetching.add(driver.id);
         const { destination } = driver.trip;
         const busPos = latlng;
@@ -445,13 +496,52 @@ export default function MapView({ drivers, selectedDriverId, onDriverSelect }: P
             // Ensure route starts exactly at bus position
             const finalPts: [number, number][] = [busPos, ...routePts.slice(1)];
 
-            // Blue road line from bus → destination
+            // Gray travelled line (empty at start — bus hasn't moved yet)
+            const travelledLine = L.polyline([], {
+              color: "#94A3B8",
+              weight: 5,
+              opacity: 0.6,
+              lineCap: "round",
+              lineJoin: "round",
+              dashArray: "8, 8",
+            }).addTo(currentMap);
+
+            // Blue road line from bus → destination (remaining)
             const routeLine = L.polyline(finalPts, {
               color: "#2563EB",
               weight: 5,
               opacity: 0.92,
               lineCap: "round",
               lineJoin: "round",
+            }).addTo(currentMap);
+
+            // Thin straight line bus → destination (direct distance)
+            const directLine = L.polyline([busPos, destCoord], {
+              color: "#64748B",
+              weight: 1.5,
+              opacity: 0.5,
+              dashArray: "5, 5",
+              lineCap: "round",
+            }).addTo(currentMap);
+
+            // Distance label at midpoint of direct line
+            const directDistKm = haversineKm(busPos[0], busPos[1], destCoord[0], destCoord[1]);
+            const directLabel = L.marker([(busPos[0] + destCoord[0]) / 2, (busPos[1] + destCoord[1]) / 2], {
+              icon: L.divIcon({
+                className: "",
+                html: `<div style="
+                  background:rgba(15,23,42,0.85);
+                  color:white;font-size:10px;font-weight:600;
+                  padding:2px 7px;border-radius:5px;
+                  white-space:nowrap;
+                  box-shadow:0 1px 4px rgba(0,0,0,0.2);
+                  pointer-events:none;
+                ">● ${formatDistance(directDistKm)}</div>`,
+                iconSize: [0, 0],
+                iconAnchor: [0, 0],
+              }),
+              zIndexOffset: 500,
+              interactive: false,
             }).addTo(currentMap);
 
             // Direction arrows
@@ -506,16 +596,44 @@ export default function MapView({ drivers, selectedDriverId, onDriverSelect }: P
                 sticky: true,
               });
 
+            // Destination name label below the pin
+            const destLabel = L.marker(destCoord, {
+              icon: L.divIcon({
+                className: "",
+                html: `<div style="
+                  margin-top:12px;
+                  background:#0F172A;
+                  color:white;
+                  font-size:11px;
+                  font-weight:600;
+                  padding:3px 8px;
+                  border-radius:6px;
+                  white-space:nowrap;
+                  box-shadow:0 2px 8px rgba(0,0,0,0.25);
+                  text-align:center;
+                  pointer-events:none;
+                ">${destination}</div>`,
+                iconSize: [0, 0],
+                iconAnchor: [0, 0],
+              }),
+              zIndexOffset: 250,
+              interactive: false,
+            }).addTo(currentMap);
+
             routes.set(driver.id, {
               fullRoute: routePts,
               routeLine,
+              travelledLine,
+              directLine,
+              directLabel,
               arrows,
               originMarker,
               destMarker,
+              destLabel,
               destCoord,
             });
 
-            // Auto-fit to show full route
+            // Auto-fit to show full route (only on first load)
             const bounds = L.latLngBounds(finalPts.map(([lat, lng]) => L.latLng(lat, lng)));
             if (bounds.isValid()) currentMap.fitBounds(bounds, { padding: [70, 70] });
 
@@ -544,7 +662,15 @@ export default function MapView({ drivers, selectedDriverId, onDriverSelect }: P
         <p className="font-semibold text-slate-700 text-xs mb-1">Legend</p>
         <div className="flex items-center gap-2">
           <span className="inline-block w-6 h-[4px] rounded bg-[#2563EB]" />
-          <span>Route to Destination</span>
+          <span>Remaining Route</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-6 h-[4px] rounded" style={{borderTop: "4px dashed #94A3B8"}} />
+          <span>Travelled</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-6" style={{borderTop: "1.5px dashed #64748B", opacity: 0.6}} />
+          <span>Direct Distance</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-block w-3 h-3 rounded-full bg-[#22c55e] border-2 border-white shadow" />

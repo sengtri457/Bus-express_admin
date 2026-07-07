@@ -55,13 +55,7 @@ export default async function OperatorTrackingPage() {
   const driverList = operatorDrivers ?? [];
   const allDriverIds = driverList.map((d) => d.id);
 
-  // ─── KEY FIX ───────────────────────────────────────────────────────────────
-  // The Flutter driver app writes GPS to trips.latitude / trips.longitude
-  // (NOT to driver_locations). We read active trips with their GPS from trips
-  // directly — matching exactly what the passenger live_tracking_screen.dart does.
-  // ───────────────────────────────────────────────────────────────────────────
-
-  let tripMap: Record<string, {
+  const tripMap: Record<string, {
     tripId: string;
     routeName: string;
     origin: string;
@@ -113,10 +107,47 @@ export default async function OperatorTrackingPage() {
     }
   }
 
-  // Build final driver list — GPS location is sourced from trips table
+  // Also fetch GPS from driver_locations (written by web-based driver tracking)
+  const driverLocMap: Record<string, {
+    latitude: number;
+    longitude: number;
+    heading: number | null;
+    speed: number | null;
+    updated_at: string;
+  }> = {};
+  if (allDriverIds.length > 0) {
+    const { data: locations } = await supabase
+      .from("driver_locations")
+      .select("driver_id, latitude, longitude, heading, speed, updated_at")
+      .in("driver_id", allDriverIds);
+
+    for (const loc of locations ?? []) {
+      if (loc.latitude != null && loc.longitude != null) {
+        driverLocMap[loc.driver_id] = {
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          heading: loc.heading,
+          speed: loc.speed,
+          updated_at: loc.updated_at,
+        };
+      }
+    }
+  }
+
+  // Build final driver list — prefer driver_locations GPS (web tracking) over trips.latitude/longitude (Flutter tracking)
   const driversWithLocation: DriverWithLocation[] = driverList.map((d) => {
     const trip = tripMap[d.id] ?? null;
-    const hasGps = trip?.latitude != null && trip?.longitude != null;
+    const dl = driverLocMap[d.id] ?? null;
+
+    const location = dl ?? (trip?.latitude != null && trip?.longitude != null
+      ? {
+          latitude: trip.latitude as number,
+          longitude: trip.longitude as number,
+          heading: null,
+          speed: null,
+          updated_at: trip.departed_at ?? new Date().toISOString(),
+        }
+      : null);
 
     return {
       id: d.id,
@@ -134,17 +165,7 @@ export default async function OperatorTrackingPage() {
             status: trip.status,
           }
         : null,
-      // Location from trips.latitude/longitude (written by driver GPS)
-      location:
-        trip && hasGps
-          ? {
-              latitude: trip.latitude as number,
-              longitude: trip.longitude as number,
-              heading: null,
-              speed: null,
-              updated_at: trip.departed_at ?? new Date().toISOString(),
-            }
-          : null,
+      location,
     };
   });
 

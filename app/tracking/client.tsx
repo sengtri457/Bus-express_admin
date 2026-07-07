@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { startTrip } from "@/app/actions/driver";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 
 interface ActiveTrip {
@@ -90,6 +91,19 @@ export function DriverTrackingClient({ driverId, driverName, activeTrip: initial
   const startTracking = useCallback(async () => {
     if (tracking) return;
     setError(null);
+
+    // If no active trip yet, start one via the server action
+    if (!currentTripRef.current) {
+      const result = await startTrip(driverId);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      if (result.trip) {
+        setCurrentTrip(result.trip);
+        currentTripRef.current = result.trip;
+      }
+    }
 
     if (!navigator.geolocation) {
       setError("Geolocation is not supported by this browser.");

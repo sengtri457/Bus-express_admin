@@ -64,6 +64,9 @@ export function TrackingClient({
   const tripIdsRef = useRef(
     initialDrivers.filter((d) => d.tripId).map((d) => d.tripId)
   );
+  const driverIdsRef = useRef(
+    initialDrivers.map((d) => d.id)
+  );
 
   const searchParams = useSearchParams();
   const driverParam = searchParams?.get("selectedDriverId");
@@ -74,48 +77,72 @@ export function TrackingClient({
     }
   }, [driverParam]);
 
-  // Poll the trips table every 10s (same source as Flutter driver app writes GPS to)
+  // Poll both trips and driver_locations every 10s
+  // - Flutter driver app writes GPS to trips.latitude / trips.longitude
+  // - Web driver tracking writes GPS to driver_locations
   useEffect(() => {
     const supabase = createClient();
     const tripIds = tripIdsRef.current;
-    if (tripIds.length === 0) return;
+    const driverIds = driverIdsRef.current;
+    if (tripIds.length === 0 && driverIds.length === 0) return;
 
-    async function refreshFromTrips() {
-      const { data: trips } = await supabase
-        .from("trips")
-        .select("id, latitude, longitude, status, departed_at")
-        .in("id", tripIds);
+    async function refreshLocations() {
+      const [tripsRes, locsRes] = await Promise.all([
+        tripIds.length > 0
+          ? supabase.from("trips").select("id, latitude, longitude, status, departed_at").in("id", tripIds)
+          : { data: null },
+        driverIds.length > 0
+          ? supabase.from("driver_locations").select("driver_id, latitude, longitude, heading, speed, updated_at").in("driver_id", driverIds)
+          : { data: null },
+      ]);
 
-      if (!trips?.length) return;
+      const trips = tripsRes?.data ?? null;
+      const locs = locsRes?.data ?? null;
 
       setDrivers((prev) =>
         prev.map((d) => {
-          if (!d.tripId) return d;
-          const t = trips.find((tr) => tr.id === d.tripId);
-          if (!t) return d;
+          const t = d.tripId && trips ? trips.find((tr) => tr.id === d.tripId) : null;
+          const loc = locs ? locs.find((l) => l.driver_id === d.id) : null;
 
-          // Update trip status too (e.g. if driver just started)
-          const hasGps = t.latitude != null && t.longitude != null;
-          return {
-            ...d,
-            trip: d.trip ? { ...d.trip, status: t.status ?? d.trip.status } : null,
-            location:
-              hasGps
-                ? {
-                    latitude: t.latitude as number,
-                    longitude: t.longitude as number,
-                    heading: d.location?.heading ?? null,
-                    speed: d.location?.speed ?? null,
-                    updated_at: t.departed_at ?? new Date().toISOString(),
-                  }
-                : d.location,
-          };
+          if (t) {
+            d = {
+              ...d,
+              trip: d.trip ? { ...d.trip, status: t.status ?? d.trip.status } : null,
+            };
+          }
+
+          // Prefer driver_locations GPS (web tracking) over trips table GPS (Flutter)
+          if (loc?.latitude != null && loc?.longitude != null) {
+            d = {
+              ...d,
+              location: {
+                latitude: loc.latitude,
+                longitude: loc.longitude,
+                heading: loc.heading ?? d.location?.heading ?? null,
+                speed: loc.speed ?? d.location?.speed ?? null,
+                updated_at: loc.updated_at ?? new Date().toISOString(),
+              },
+            };
+          } else if (t?.latitude != null && t?.longitude != null) {
+            d = {
+              ...d,
+              location: {
+                latitude: t.latitude,
+                longitude: t.longitude,
+                heading: d.location?.heading ?? null,
+                speed: d.location?.speed ?? null,
+                updated_at: t.departed_at ?? new Date().toISOString(),
+              },
+            };
+          }
+
+          return d;
         })
       );
     }
 
-    refreshFromTrips();
-    const interval = setInterval(refreshFromTrips, 10_000);
+    refreshLocations();
+    const interval = setInterval(refreshLocations, 10_000);
     return () => clearInterval(interval);
   }, []);
 
