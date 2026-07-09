@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { startTrip } from "@/app/actions/driver";
+import { submitDriverAppeal } from "@/app/actions/penalties";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 
 interface ActiveTrip {
@@ -14,21 +15,46 @@ interface ActiveTrip {
   arrivalTime: string;
 }
 
+interface PendingPenalty {
+  id: string;
+  delay_minutes: number;
+  recommended_fine: number;
+  status: string;
+  driver_explanation: string | null;
+  routeName: string;
+  departureTime: string;
+  tripDate: string;
+}
+
 interface Props {
   driverId: string;
   driverName: string;
   activeTrip: ActiveTrip | null;
+  pendingPenalties?: PendingPenalty[];
 }
 
-export function DriverTrackingClient({ driverId, driverName, activeTrip: initialTrip }: Props) {
+export function DriverTrackingClient({ 
+  driverId, 
+  driverName, 
+  activeTrip: initialTrip,
+  pendingPenalties = []
+}: Props) {
   const [tracking, setTracking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Appeal States
+  const [penalties, setPenalties] = useState<PendingPenalty[]>(pendingPenalties);
+  const [appealingId, setAppealingId] = useState<string | null>(null);
+  const [appealText, setAppealText] = useState("");
+  const [appealLoading, setAppealLoading] = useState(false);
+
   const [position, setPosition] = useState<{
     latitude: number;
     longitude: number;
     heading: number | null;
     speed: number | null;
   } | null>(null);
+
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
   const [updateCount, setUpdateCount] = useState(0);
   const [currentTrip, setCurrentTrip] = useState<ActiveTrip | null>(initialTrip);
@@ -139,6 +165,21 @@ export function DriverTrackingClient({ driverId, driverName, activeTrip: initial
     }, 5000);
   }, [tracking, sendLocation]);
 
+  const handleAppealSubmit = async (penaltyId: string) => {
+    if (!appealText.trim()) return;
+    setAppealLoading(true);
+    setError(null);
+    const result = await submitDriverAppeal(penaltyId, appealText);
+    setAppealLoading(false);
+    if (result.error) {
+      setError(result.error);
+    } else {
+      setPenalties((prev) => prev.filter((p) => p.id !== penaltyId));
+      setAppealingId(null);
+      setAppealText("");
+    }
+  };
+
   // Auto-start on mount if active trip exists
   useEffect(() => {
     if (initialTrip) {
@@ -244,6 +285,71 @@ export function DriverTrackingClient({ driverId, driverName, activeTrip: initial
         ) : (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
             Waiting for trip to start...
+          </div>
+        )}
+
+        {penalties.length > 0 && (
+          <div className="space-y-3">
+            {penalties.map((penalty) => (
+              <div 
+                key={penalty.id} 
+                className="rounded-2xl border border-red-200 bg-red-50 p-4 text-left text-xs space-y-2.5 animate-in fade-in"
+              >
+                <div className="flex items-start justify-between gap-1">
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-red-800">Pending Late Start Fine</p>
+                    <p className="text-red-600 font-medium">{penalty.routeName} ({penalty.tripDate})</p>
+                    <p className="text-red-500 text-[10px]">
+                      Scheduled: {penalty.departureTime} · Delayed by {penalty.delay_minutes} mins
+                    </p>
+                  </div>
+                  <span className="font-extrabold text-red-700 text-sm shrink-0">
+                    -${penalty.recommended_fine.toFixed(2)}
+                  </span>
+                </div>
+
+                {appealingId === penalty.id ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={appealText}
+                      onChange={(e) => setAppealText(e.target.value)}
+                      placeholder="Explain the reason for the delay..."
+                      rows={2}
+                      className="w-full rounded-lg border border-red-300 bg-white p-2 text-xs text-slate-800 shadow-sm focus:border-red-500 focus:outline-none resize-none"
+                    />
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        onClick={() => {
+                          setAppealingId(null);
+                          setAppealText("");
+                        }}
+                        disabled={appealLoading}
+                        className="rounded-lg px-2.5 py-1.5 text-[10px] font-semibold text-red-700 hover:bg-red-100 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleAppealSubmit(penalty.id)}
+                        disabled={appealLoading || !appealText.trim()}
+                        className="rounded-lg bg-red-600 text-white px-3 py-1.5 text-[10px] font-semibold hover:bg-red-700 transition-colors shadow-sm disabled:opacity-50"
+                      >
+                        {appealLoading ? "Submitting..." : "Submit Appeal"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setAppealingId(penalty.id);
+                      setAppealText("");
+                    }}
+                    className="w-full rounded-lg bg-white border border-red-200 text-red-700 py-1.5 text-center font-semibold hover:bg-red-100/50 transition-colors shadow-sm"
+                  >
+                    Appeal Fine / Explain Delay
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         )}
 

@@ -76,9 +76,43 @@ export interface Schedule {
   arrival_time: string;
   days_of_week: string;
   price: number;
+  driver_payout_rate?: number;
   status: ScheduleStatus;
   created_at: string | null;
   routes?: Pick<Route, "id" | "origin" | "destination" | "name">;
   buses?: Pick<Bus, "id" | "model" | "plate_number" | "capacity">;
   users?: Pick<User, "id" | "name">;
 }
+
+export type PenaltyStatus = "pending" | "approved" | "waived" | "appealed";
+
+export interface DriverPenalty {
+  id: string;
+  driver_id: string;
+  trip_id: string;
+  delay_minutes: number;
+  recommended_fine: number;
+  approved_fine: number;
+  status: PenaltyStatus;
+  driver_explanation: string | null;
+  operator_notes: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  trips?: {
+    id: string;
+    trip_date: string;
+    schedules?: {
+      id: string;
+      departure_time: string;
+      routes?: {
+        name: string;
+      };
+    };
+  };
+  users?: {
+    id: string;
+    name: string;
+  };
+}
+

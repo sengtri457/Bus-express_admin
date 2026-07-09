@@ -52,6 +52,7 @@ export const NAV_ITEMS = {
     { label: "Buses", href: "/operator/buses", icon: "Bus" },
     { label: "Schedules", href: "/operator/schedules", icon: "Calendar" },
     { label: "Staff", href: "/operator/staff", icon: "UserCog" },
+    { label: "Penalties", href: "/operator/penalties", icon: "Coins" },
     { label: "Reports", href: "/operator/reports", icon: "BarChart3" },
   ],
 } as const;

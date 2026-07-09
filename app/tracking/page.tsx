@@ -40,6 +40,29 @@ export default async function DriverTrackingPage() {
     .eq("schedules.driver_id", profile.id)
     .maybeSingle();
 
+  // Find any pending penalties for the driver to appeal
+  const { data: penalties } = await supabase
+    .from("driver_penalties")
+    .select(`
+      id,
+      delay_minutes,
+      recommended_fine,
+      status,
+      driver_explanation,
+      trips!inner (
+        trip_date,
+        schedules!inner (
+          departure_time,
+          routes!inner (
+            name
+          )
+        )
+      )
+    `)
+    .eq("driver_id", profile.id)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+
   const trip = activeTrip
     ? (() => {
         const s = Array.isArray(activeTrip.schedules) ? activeTrip.schedules[0] : activeTrip.schedules;
@@ -55,11 +78,29 @@ export default async function DriverTrackingPage() {
       })()
     : null;
 
+  const formattedPenalties = (penalties ?? []).map((p: any) => {
+    const tripData = Array.isArray(p.trips) ? p.trips[0] : p.trips;
+    const sched = tripData?.schedules ? (Array.isArray(tripData.schedules) ? tripData.schedules[0] : tripData.schedules) : null;
+    const route = sched?.routes ? (Array.isArray(sched.routes) ? sched.routes[0] : sched.routes) : null;
+
+    return {
+      id: p.id,
+      delay_minutes: p.delay_minutes,
+      recommended_fine: p.recommended_fine,
+      status: p.status,
+      driver_explanation: p.driver_explanation,
+      routeName: route?.name ?? "Unknown Route",
+      departureTime: sched?.departure_time ?? "",
+      tripDate: tripData?.trip_date ?? ""
+    };
+  });
+
   return (
     <DriverTrackingClient
       driverId={profile.id}
       driverName={profile.name ?? "Driver"}
       activeTrip={trip}
+      pendingPenalties={formattedPenalties}
     />
   );
 }

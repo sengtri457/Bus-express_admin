@@ -19,6 +19,7 @@ import {
   Users,
   Tags,
   Navigation,
+  Coins,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -52,6 +53,7 @@ const operatorSections: NavSection[] = [
       { label: "Buses", href: "/operator/buses", icon: Bus },
       { label: "Schedules", href: "/operator/schedules", icon: Calendar },
       { label: "Staff", href: "/operator/staff", icon: UserCog },
+      { label: "Penalties & Payouts", href: "/operator/penalties", icon: Coins },
       { label: "Live Tracking", href: "/operator/tracking", icon: Navigation },
     ],
   },
@@ -64,6 +66,7 @@ const operatorSections: NavSection[] = [
     items: [{ label: "Settings", href: "/operator/settings", icon: Settings }],
   },
 ];
+
 
 const superAdminSections: NavSection[] = [
   {
