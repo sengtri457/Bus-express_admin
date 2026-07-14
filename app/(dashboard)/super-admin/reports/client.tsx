@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { StatsCard } from "@/components/shared/stats-card";
 import { DonutChart } from "@/components/dashboard/donut-chart";
@@ -42,8 +43,8 @@ export function ReportsClient({
 
   async function handleExport() {
     setExporting(true);
-    const { generateSuperAdminPdf } = await import("@/lib/utils/pdf-export");
-    await generateSuperAdminPdf({
+    const { exportSuperAdminCsv } = await import("@/lib/utils/csv-export");
+    exportSuperAdminCsv({
       totalRevenue,
       totalBookings,
       activeTrips,
@@ -75,12 +76,22 @@ export function ReportsClient({
             <p className="text-sm text-gray-500">System-wide analytics and key metrics</p>
           </div>
         </div>
-        <button onClick={handleExport} disabled={exporting} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50">
-          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-          </svg>
-          {exporting ? "Exporting..." : "Download PDF"}
-        </button>
+        <div className="flex items-center gap-3">
+          <Link href="/super-admin/reports/operators">
+            <button className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 shadow-sm cursor-pointer">
+              <svg className="h-4 w-4 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+              Operators Comparison
+            </button>
+          </Link>
+          <button onClick={handleExport} disabled={exporting} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 cursor-pointer">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            {exporting ? "Exporting..." : "Export CSV"}
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">

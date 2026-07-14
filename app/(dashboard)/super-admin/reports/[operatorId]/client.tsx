@@ -1,28 +1,13 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
-import { fetchOperatorReport } from "@/lib/services/operator-report";
-import { OperatorReportsClient } from "./client";
+"use client";
 
-export default async function OperatorReports() {
-  const supabase = await createClient();
+import { OperatorReportsClient } from "@/components/reports/operator-report-client";
+import type { OperatorReportData } from "@/lib/services/operator-report";
 
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
-  if (!authUser) redirect("/login");
+interface PerOperatorReportClientProps {
+  reportData: OperatorReportData;
+}
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("role, operator_id")
-    .eq("id", authUser.id)
-    .single();
-
-  if (profile?.role !== "operator_admin" || !profile?.operator_id) {
-    redirect("/login");
-  }
-
-  const reportData = await fetchOperatorReport(supabase, profile.operator_id);
-
+export function PerOperatorReportClient({ reportData }: PerOperatorReportClientProps) {
   return (
     <OperatorReportsClient
       operatorName={reportData.operatorName}
@@ -45,12 +30,13 @@ export default async function OperatorReports() {
       staffChartData={reportData.staffChartData}
       tripTrend={reportData.tripTrend}
       bookingTrend={reportData.bookingTrend}
-      // Pass revenue fields to enable enhancements in operator view too
       totalRevenue={reportData.totalRevenue}
       cashRevenue={reportData.cashRevenue}
       bakongRevenue={reportData.bakongRevenue}
       revenueByMethod={reportData.revenueByMethod}
       revenueTrend={reportData.revenueTrend}
+      backHref="/super-admin/reports/operators"
+      exportType="csv"
     />
   );
 }

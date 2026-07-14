@@ -37,6 +37,36 @@ interface OperatorReportData {
   staffChartData: { name: string; value: number }[];
   tripTrend: { label: string; value: number }[];
   bookingTrend: { label: string; value: number }[];
+  
+  // Optional revenue data
+  totalRevenue?: number;
+  cashRevenue?: number;
+  bakongRevenue?: number;
+  revenueByMethod?: { name: string; value: number }[];
+  revenueTrend?: { label: string; value: number }[];
+}
+
+interface OperatorSummary {
+  operatorId: string;
+  operatorName: string;
+  logoUrl: string | null;
+  status: string;
+  totalBuses: number;
+  activeBuses: number;
+  totalStaff: number;
+  activeStaff: number;
+  drivers: number;
+  conductors: number;
+  totalRoutes: number;
+  activeRoutes: number;
+  activeSchedules: number;
+  totalTrips: number;
+  completedTrips: number;
+  cancelledTrips: number;
+  totalBookings: number;
+  totalRevenue: number;
+  cashRevenue: number;
+  bakongRevenue: number;
 }
 
 function addHeader(doc: jsPDF, title: string) {
@@ -60,17 +90,6 @@ function addSection(doc: jsPDF, y: number, title: string): number {
   doc.text(title, 14, y);
   doc.setFont("helvetica", "normal");
   return y + 7;
-}
-
-function addKeyValue(doc: jsPDF, y: number, key: string, value: string | number): number {
-  doc.setFontSize(10);
-  doc.setTextColor(75, 85, 99);
-  doc.text(key, 20, y);
-  doc.setTextColor(31, 41, 55);
-  doc.setFont("helvetica", "bold");
-  doc.text(String(value), doc.internal.pageSize.getWidth() / 2 + 10, y);
-  doc.setFont("helvetica", "normal");
-  return y + 6;
 }
 
 function addKeyValueRow(doc: jsPDF, y: number, pairs: [string, string | number][]): number {
@@ -241,16 +260,25 @@ export async function generateOperatorPdf(data: OperatorReportData) {
 
   // Key Metrics
   y = addSection(doc, y, "Key Metrics");
-  y = addKeyValueRow(doc, y + 2, [
+  
+  const metricPairs1: [string, string | number][] = [
     ["Active Buses", `${data.activeBuses}/${data.totalBuses}`],
     ["Active Routes", `${data.activeRoutes}/${data.totalRoutes}`],
     ["Active Schedules", String(data.activeSchedules)],
-  ]);
-  y = addKeyValueRow(doc, y, [
+  ];
+  
+  const metricPairs2: [string, string | number][] = [
     ["Active Staff", `${data.activeStaff}/${data.totalStaff}`],
     ["Today's Trips", String(data.tripScheduled + data.tripInProgress + data.tripCompleted)],
     ["Today's Bookings", String(data.todayBookings)],
-  ]);
+  ];
+
+  if (data.totalRevenue !== undefined) {
+    metricPairs1.push(["Revenue (Month)", `$${data.totalRevenue.toFixed(2)}`]);
+  }
+
+  y = addKeyValueRow(doc, y + 2, metricPairs1);
+  y = addKeyValueRow(doc, y, metricPairs2);
   y += 4;
 
   // Today's Trips Summary
@@ -270,6 +298,22 @@ export async function generateOperatorPdf(data: OperatorReportData) {
     tableWidth: 80,
   });
   y = (doc as any).lastAutoTable.finalY + 8;
+
+  // Revenue by Method Table (if present)
+  if (data.revenueByMethod && data.revenueByMethod.length > 0) {
+    y = addSection(doc, y, "Revenue by Method");
+    autoTable(doc, {
+      startY: y + 2,
+      head: [["Method", "Amount"]],
+      body: data.revenueByMethod.map((r) => [r.name, `$${r.value.toFixed(2)}`]),
+      theme: "grid",
+      headStyles: { fillColor: [22, 163, 74], fontSize: 9 },
+      bodyStyles: { fontSize: 9 },
+      margin: { left: 20 },
+      tableWidth: 80,
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+  }
 
   // Fleet Status table
   if (data.busChartData.length > 0) {
@@ -299,6 +343,26 @@ export async function generateOperatorPdf(data: OperatorReportData) {
       bodyStyles: { fontSize: 9 },
       margin: { left: 20 },
       tableWidth: 80,
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+  }
+
+  // Daily Revenue (Last 14 Days)
+  if (data.revenueTrend && data.revenueTrend.length > 0) {
+    if (y > 230) {
+      doc.addPage();
+      y = 20;
+    }
+    addSection(doc, y, "Daily Revenue (Last 14 Days)");
+    autoTable(doc, {
+      startY: y + 9,
+      head: [["Date", "Revenue"]],
+      body: data.revenueTrend.map((t) => [t.label, `$${t.value.toFixed(2)}`]),
+      theme: "grid",
+      headStyles: { fillColor: [22, 163, 74], fontSize: 9 },
+      bodyStyles: { fontSize: 9 },
+      margin: { left: 20 },
+      tableWidth: 100,
     });
     y = (doc as any).lastAutoTable.finalY + 8;
   }
@@ -357,4 +421,103 @@ export async function generateOperatorPdf(data: OperatorReportData) {
   }
 
   doc.save(`busexpress-${data.operatorName.toLowerCase().replace(/\s+/g, "-")}-report.pdf`);
+}
+
+export async function generateAllOperatorsPdf(data: OperatorSummary[]) {
+  const doc = new jsPDF("l", "mm", "a4"); // Landscape
+  const pageW = doc.internal.pageSize.getWidth();
+
+  addHeader(doc, "All Operators Comparison Report");
+
+  let y = 48;
+
+  // System-wide comparative aggregates
+  const totalOps = data.length;
+  const totalBuses = data.reduce((s, op) => s + op.totalBuses, 0);
+  const activeBuses = data.reduce((s, op) => s + op.activeBuses, 0);
+  const totalStaff = data.reduce((s, op) => s + op.totalStaff, 0);
+  const totalRevenue = data.reduce((s, op) => s + op.totalRevenue, 0);
+  const totalBookings = data.reduce((s, op) => s + op.totalBookings, 0);
+
+  y = addSection(doc, y, "System-wide Comparative Aggregates");
+  y = addKeyValueRow(doc, y + 2, [
+    ["Total Operators", String(totalOps)],
+    ["Total Buses (Active/Total)", `${activeBuses}/${totalBuses}`],
+    ["Total Staff", String(totalStaff)],
+    ["Total Bookings", String(totalBookings)],
+    ["Total Revenue", `$${totalRevenue.toFixed(2)}`],
+  ]);
+  y += 6;
+
+  // Operator Comparison Table
+  y = addSection(doc, y, "Operator Performance Details");
+  autoTable(doc, {
+    startY: y + 2,
+    head: [["Operator", "Status", "Buses (Active)", "Staff (Active)", "Routes", "Schedules", "Trips", "Bookings", "Revenue"]],
+    body: data.map((op) => [
+      op.operatorName,
+      op.status.toUpperCase(),
+      `${op.activeBuses}/${op.totalBuses}`,
+      `${op.activeStaff}/${op.totalStaff}`,
+      String(op.totalRoutes),
+      String(op.activeSchedules),
+      String(op.totalTrips),
+      String(op.totalBookings),
+      `$${op.totalRevenue.toFixed(2)}`,
+    ]),
+    theme: "grid",
+    headStyles: { fillColor: [22, 163, 74], fontSize: 9 },
+    bodyStyles: { fontSize: 8.5 },
+    margin: { left: 14, right: 14 },
+  });
+  y = (doc as any).lastAutoTable.finalY + 8;
+
+  // Leaderboards
+  const topRevenue = [...data].sort((a, b) => b.totalRevenue - a.totalRevenue).slice(0, 5);
+  const topBookings = [...data].sort((a, b) => b.totalBookings - a.totalBookings).slice(0, 5);
+
+  if (y > 150) {
+    doc.addPage();
+    y = 20;
+  }
+
+  y = addSection(doc, y, "Operator Rankings");
+
+  // Stack/side-by-side leaderboards in table format
+  autoTable(doc, {
+    startY: y + 2,
+    head: [["Rank", "Top Operator by Revenue", "Revenue", "Top Operator by Bookings", "Bookings"]],
+    body: [0, 1, 2, 3, 4].map((idx) => {
+      const revOp = topRevenue[idx];
+      const bkOp = topBookings[idx];
+      return [
+        String(idx + 1),
+        revOp ? revOp.operatorName : "-",
+        revOp ? `$${revOp.totalRevenue.toFixed(2)}` : "-",
+        bkOp ? bkOp.operatorName : "-",
+        bkOp ? `${bkOp.totalBookings} bookings` : "-",
+      ];
+    }),
+    theme: "grid",
+    headStyles: { fillColor: [37, 99, 235], fontSize: 9 },
+    bodyStyles: { fontSize: 9 },
+    margin: { left: 14, right: 14 },
+    tableWidth: 180,
+  });
+
+  // Footer
+  const pageCount = doc.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(156, 163, 175);
+    doc.text(
+      `BusExpress — All Operators Comparison Report — Page ${i} of ${pageCount}`,
+      pageW / 2,
+      doc.internal.pageSize.getHeight() - 10,
+      { align: "center" }
+    );
+  }
+
+  doc.save("busexpress-all-operators-comparison.pdf");
 }

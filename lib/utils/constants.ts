@@ -45,6 +45,7 @@ export const NAV_ITEMS = {
     { label: "Users", href: "/super-admin/users", icon: "Users" },
     { label: "Promotions", href: "/super-admin/promotions", icon: "Tags" },
     { label: "Reports", href: "/super-admin/reports", icon: "BarChart3" },
+    { label: "Operators Report", href: "/super-admin/reports/operators", icon: "Building2" },
   ],
   operator_admin: [
     { label: "Dashboard", href: "/operator", icon: "LayoutDashboard" },
