@@ -1,13 +1,24 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import { fetchOperatorReport } from "@/lib/services/operator-report";
+import {
+  createReportPeriod,
+  getSearchParam,
+} from "@/lib/services/report-period";
 import { PerOperatorReportClient } from "./client";
 
 interface PageProps {
   params: Promise<{ operatorId: string }>;
+  searchParams: Promise<{
+    from?: string | string[];
+    to?: string | string[];
+  }>;
 }
 
-export default async function PerOperatorReportPage({ params }: PageProps) {
+export default async function PerOperatorReportPage({
+  params,
+  searchParams,
+}: PageProps) {
   const { operatorId } = await params;
   
   const supabase = await createClient();
@@ -38,7 +49,12 @@ export default async function PerOperatorReportPage({ params }: PageProps) {
     notFound();
   }
 
-  const reportData = await fetchOperatorReport(supabase, operatorId);
+  const query = await searchParams;
+  const period = createReportPeriod(
+    getSearchParam(query.from),
+    getSearchParam(query.to)
+  );
+  const reportData = await fetchOperatorReport(supabase, operatorId, period);
 
   return (
     <PerOperatorReportClient reportData={reportData} />

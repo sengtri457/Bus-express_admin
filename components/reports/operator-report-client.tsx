@@ -2,10 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { StatsCard } from "@/components/shared/stats-card";
 import { DonutChart } from "@/components/dashboard/donut-chart";
 import { BarChart } from "@/components/dashboard/bar-chart";
+import { ReportPeriodFilter } from "@/components/reports/report-period-filter";
+import type { ReportPeriod } from "@/lib/services/report-period";
 
 interface OperatorReportsClientProps {
   operatorName: string;
@@ -28,13 +31,23 @@ interface OperatorReportsClientProps {
   staffChartData: { name: string; value: number; color: string }[];
   tripTrend: { label: string; value: number }[];
   bookingTrend: { label: string; value: number }[];
-  
-  // Optional enhancements (Revenue)
-  totalRevenue?: number;
-  cashRevenue?: number;
-  bakongRevenue?: number;
-  revenueByMethod?: { name: string; value: number; color: string }[];
-  revenueTrend?: { label: string; value: number }[];
+  period: ReportPeriod;
+  periodTrips: number;
+  completedTrips: number;
+  cancelledTrips: number;
+  totalBookings: number;
+  paidBookings: number;
+  confirmedBookings: number;
+  cancelledBookings: number;
+  bookingSuccessRate: number;
+  cancellationRate: number;
+  averageTicketValue: number;
+  revenuePerCompletedTrip: number;
+  totalRevenue: number;
+  cashRevenue: number;
+  bakongRevenue: number;
+  revenueByMethod: { name: string; value: number; color: string }[];
+  revenueTrend: { label: string; value: number }[];
 
   // Navigation & Export
   backHref?: string;
@@ -62,6 +75,18 @@ export function OperatorReportsClient({
   staffChartData,
   tripTrend,
   bookingTrend,
+  period,
+  periodTrips,
+  completedTrips,
+  cancelledTrips,
+  totalBookings,
+  paidBookings,
+  confirmedBookings,
+  cancelledBookings,
+  bookingSuccessRate,
+  cancellationRate,
+  averageTicketValue,
+  revenuePerCompletedTrip,
   totalRevenue,
   cashRevenue,
   bakongRevenue,
@@ -75,69 +100,61 @@ export function OperatorReportsClient({
 
   async function handleExport() {
     setExporting(true);
-    if (exportType === "csv") {
-      const { exportOperatorCsv } = await import("@/lib/utils/csv-export");
-      exportOperatorCsv({
-        operatorName,
-        logoUrl,
-        totalBuses,
-        activeBuses,
-        maintenanceBuses: busChartData.find((b) => b.name === "Maintenance")?.value ?? 0,
-        retiredBuses: busChartData.find((b) => b.name === "Retired")?.value ?? 0,
-        totalRoutes,
-        activeRoutes,
-        activeSchedules,
-        totalStaff,
-        activeStaff,
-        tripScheduled,
-        tripInProgress,
-        tripCompleted,
-        todayBookings,
-        drivers,
-        conductors,
-        busChartData,
-        tripChartData,
-        staffChartData,
-        tripTrend,
-        bookingTrend,
-        totalRevenue: totalRevenue ?? 0,
-        cashRevenue: cashRevenue ?? 0,
-        bakongRevenue: bakongRevenue ?? 0,
-        revenueByMethod: revenueByMethod ?? [],
-        revenueTrend: revenueTrend ?? [],
-      });
-    } else {
-      const { generateOperatorPdf } = await import("@/lib/utils/pdf-export");
-      await generateOperatorPdf({
-        operatorName,
-        logoUrl,
-        totalBuses,
-        activeBuses,
-        totalRoutes,
-        activeRoutes,
-        activeSchedules,
-        totalStaff,
-        activeStaff,
-        tripScheduled,
-        tripInProgress,
-        tripCompleted,
-        todayBookings,
-        drivers,
-        conductors,
-        busChartData: busChartData.map((b) => ({ name: b.name, value: b.value })),
-        staffChartData: staffChartData.map((s) => ({ name: s.name, value: s.value })),
-        tripTrend,
-        bookingTrend,
-        ...(totalRevenue !== undefined && {
-          totalRevenue,
-          cashRevenue,
-          bakongRevenue,
-          revenueByMethod: revenueByMethod?.map(r => ({ name: r.name, value: r.value })),
-          revenueTrend
-        } as any)
-      });
+    const exportData = {
+      period,
+      operatorName,
+      logoUrl,
+      totalBuses,
+      activeBuses,
+      maintenanceBuses:
+        busChartData.find((item) => item.name === "Maintenance")?.value ?? 0,
+      retiredBuses:
+        busChartData.find((item) => item.name === "Retired")?.value ?? 0,
+      totalRoutes,
+      activeRoutes,
+      activeSchedules,
+      totalStaff,
+      activeStaff,
+      tripScheduled,
+      tripInProgress,
+      tripCompleted,
+      todayBookings,
+      drivers,
+      conductors,
+      busChartData,
+      tripChartData,
+      staffChartData,
+      tripTrend,
+      bookingTrend,
+      periodTrips,
+      completedTrips,
+      cancelledTrips,
+      totalBookings,
+      paidBookings,
+      confirmedBookings,
+      cancelledBookings,
+      bookingSuccessRate,
+      cancellationRate,
+      averageTicketValue,
+      revenuePerCompletedTrip,
+      totalRevenue,
+      cashRevenue,
+      bakongRevenue,
+      revenueByMethod,
+      revenueTrend,
+    };
+
+    try {
+      if (exportType === "csv") {
+        const { exportOperatorCsv } = await import("@/lib/utils/csv-export");
+        exportOperatorCsv(exportData);
+      } else {
+        const { generateOperatorPdf } = await import("@/lib/utils/pdf-export");
+        await generateOperatorPdf(exportData);
+      }
+    } finally {
+      setExporting(false);
     }
-    setExporting(false);
   }
 
   return (
@@ -159,7 +176,13 @@ export function OperatorReportsClient({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-4">
           {logoUrl ? (
-            <img src={logoUrl} alt={operatorName} className="h-12 w-12 rounded-xl object-cover ring-2 ring-gray-100" />
+            <Image
+              src={logoUrl}
+              alt={operatorName}
+              width={48}
+              height={48}
+              className="h-12 w-12 rounded-xl object-cover ring-2 ring-gray-100"
+            />
           ) : (
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-lg font-bold text-blue-600 ring-2 ring-blue-50">
               {operatorName.charAt(0).toUpperCase()}
@@ -182,10 +205,11 @@ export function OperatorReportsClient({
         </button>
       </div>
 
+      <ReportPeriodFilter period={period} />
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
-        {totalRevenue !== undefined && (
-          <StatsCard
-            title="Revenue (Month)"
+        <StatsCard
+            title="Revenue (Period)"
             value={`$${totalRevenue.toFixed(2)}`}
             icon={
               <svg className="h-5 w-5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -193,7 +217,6 @@ export function OperatorReportsClient({
               </svg>
             }
           />
-        )}
         <StatsCard
           title="Active Buses"
           value={`${activeBuses}/${totalBuses}`}
@@ -250,6 +273,16 @@ export function OperatorReportsClient({
         />
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+        <StatsCard title="Trips (Period)" value={periodTrips} icon={<span className="font-bold">T</span>} />
+        <StatsCard title="Completed" value={completedTrips} icon={<span className="font-bold text-emerald-600">✓</span>} />
+        <StatsCard title="Cancelled" value={cancelledTrips} icon={<span className="font-bold text-red-600">×</span>} />
+        <StatsCard title="Bookings (Period)" value={totalBookings} icon={<span className="font-bold text-blue-600">B</span>} />
+        <StatsCard title="Booking Success" value={`${bookingSuccessRate}%`} icon={<span className="font-bold text-blue-600">%</span>} />
+        <StatsCard title="Avg. Ticket" value={`$${averageTicketValue.toFixed(2)}`} icon={<span className="font-bold text-violet-600">$</span>} />
+        <StatsCard title="Revenue / Trip" value={`$${revenuePerCompletedTrip.toFixed(2)}`} icon={<span className="font-bold text-emerald-600">$</span>} />
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-3">
         <Card>
           <CardHeader>
@@ -289,7 +322,7 @@ export function OperatorReportsClient({
         </Card>
       </div>
 
-      {revenueByMethod && revenueByMethod.length > 0 && (
+      {revenueByMethod.length > 0 && (
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-1">
             <CardHeader>
@@ -299,23 +332,21 @@ export function OperatorReportsClient({
               <DonutChart data={revenueByMethod} title="Revenue Method" />
             </CardContent>
           </Card>
-          {revenueTrend && (
             <Card className="lg:col-span-2">
               <CardHeader>
-                <h3 className="text-lg font-semibold text-gray-900">Revenue Trend (Last 14 Days)</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Revenue Trend ({period.label})</h3>
               </CardHeader>
               <CardContent>
                 <BarChart data={revenueTrend} title="Revenue" color="#10b981" />
               </CardContent>
             </Card>
-          )}
         </div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <h3 className="text-lg font-semibold text-gray-900">Trips (Last 14 Days)</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Trips ({period.label})</h3>
           </CardHeader>
           <CardContent>
             <BarChart data={tripTrend} title="Trips Trend" color="#8b5cf6" />
@@ -323,7 +354,7 @@ export function OperatorReportsClient({
         </Card>
         <Card>
           <CardHeader>
-            <h3 className="text-lg font-semibold text-gray-900">Bookings (Last 14 Days)</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Bookings ({period.label})</h3>
           </CardHeader>
           <CardContent>
             <BarChart data={bookingTrend} title="Bookings Trend" color="#3b82f6" />
@@ -385,6 +416,9 @@ export function OperatorReportsClient({
           </CardContent>
         </Card>
       </div>
+      <p className="text-right text-xs text-gray-400">
+        Trip cancellation rate for this period: {cancellationRate}%
+      </p>
     </div>
   );
 }

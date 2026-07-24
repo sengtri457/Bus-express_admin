@@ -1,5 +1,11 @@
 # All Operators Report (Aggregated Comparison for Super Admin)
 
+> **Implementation status (July 2026):** Implemented. The production page now
+> supports a shared reporting period, paginated data retrieval, sortable and
+> paginated comparisons, period-aware CSV exports, operator drill-down, and
+> completion/cancellation/average-ticket KPIs. The historical proposal below is
+> retained as design context.
+
 ## Current State
 
 The existing super admin report at `app/(dashboard)/super-admin/reports/page.tsx` shows **system-wide aggregated data** — total revenue, total bookings, total trips, total users, etc. It does **not break down per-operator** or provide a side-by-side comparison of operator performance.

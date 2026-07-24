@@ -6,60 +6,47 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { StatsCard } from "@/components/shared/stats-card";
 import { DonutChart } from "@/components/dashboard/donut-chart";
 import { BarChart } from "@/components/dashboard/bar-chart";
-
+import { ReportPeriodFilter } from "@/components/reports/report-period-filter";
+import type { SystemReportData } from "@/lib/services/system-report";
 
 interface ReportsClientProps {
-  totalRevenue: number;
-  totalBookings: number;
-  activeTrips: number;
-  activeOperators: number;
-  totalUsers: number;
-  activePromotions: number;
-  revenueByMethod: { name: string; value: number; color: string }[];
-  bookingsByStatus: { name: string; value: number; color: string }[];
-  tripsByStatus: { name: string; value: number; color: string }[];
-  revenueTrend: { label: string; value: number }[];
-  bookingsTrend: { label: string; value: number }[];
-  usersByRole: { name: string; value: number; color: string }[];
-  promoUsageCount: number;
+  reportData: SystemReportData;
 }
 
-export function ReportsClient({
-  totalRevenue,
-  totalBookings,
-  activeTrips,
-  activeOperators,
-  totalUsers,
-  activePromotions,
-  revenueByMethod,
-  bookingsByStatus,
-  tripsByStatus,
-  revenueTrend,
-  bookingsTrend,
-  usersByRole,
-  promoUsageCount,
-}: ReportsClientProps) {
+export function ReportsClient({ reportData }: ReportsClientProps) {
   const [exporting, setExporting] = useState(false);
+  const {
+    period,
+    totalRevenue,
+    totalBookings,
+    activeTripsToday,
+    periodTrips,
+    completedTrips,
+    cancelledTrips,
+    tripCompletionRate,
+    tripCancellationRate,
+    averageTicketValue,
+    activeOperators,
+    totalOperators,
+    totalUsers,
+    activePromotions,
+    revenueByMethod,
+    bookingsByStatus,
+    tripsByStatus,
+    revenueTrend,
+    bookingsTrend,
+    usersByRole,
+    promoUsageCount,
+  } = reportData;
 
   async function handleExport() {
     setExporting(true);
-    const { exportSuperAdminCsv } = await import("@/lib/utils/csv-export");
-    exportSuperAdminCsv({
-      totalRevenue,
-      totalBookings,
-      activeTrips,
-      activeOperators,
-      totalUsers,
-      activePromotions,
-      revenueByMethod: revenueByMethod.map((r) => ({ name: r.name, value: r.value })),
-      bookingsByStatus: bookingsByStatus.map((b) => ({ name: b.name, value: b.value })),
-      tripsByStatus: tripsByStatus.map((t) => ({ name: t.name, value: t.value })),
-      revenueTrend,
-      bookingsTrend,
-      usersByRole: usersByRole.map((u) => ({ name: u.name, value: u.value })),
-      promoUsageCount,
-    });
-    setExporting(false);
+    try {
+      const { exportSuperAdminCsv } = await import("@/lib/utils/csv-export");
+      exportSuperAdminCsv(reportData);
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -77,7 +64,7 @@ export function ReportsClient({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/super-admin/reports/operators">
+          <Link href={`/super-admin/reports/operators?from=${period.startDate}&to=${period.endDate}`}>
             <button className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 shadow-sm cursor-pointer">
               <svg className="h-4 w-4 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -94,9 +81,11 @@ export function ReportsClient({
         </div>
       </div>
 
+      <ReportPeriodFilter period={period} />
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatsCard
-          title="Revenue (This Month)"
+          title="Revenue (Period)"
           value={`$${totalRevenue.toFixed(2)}`}
           icon={
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -105,7 +94,7 @@ export function ReportsClient({
           }
         />
         <StatsCard
-          title="Bookings (This Month)"
+          title="Bookings (Period)"
           value={totalBookings}
           icon={
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -115,7 +104,7 @@ export function ReportsClient({
         />
         <StatsCard
           title="Active Trips (Today)"
-          value={activeTrips}
+          value={activeTripsToday}
           icon={
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -124,7 +113,7 @@ export function ReportsClient({
         />
         <StatsCard
           title="Active Operators"
-          value={activeOperators}
+          value={`${activeOperators}/${totalOperators}`}
           icon={
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -152,10 +141,18 @@ export function ReportsClient({
         />
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <StatsCard title="Trips (Period)" value={periodTrips} icon={<span className="text-sm font-bold">T</span>} />
+        <StatsCard title="Completed Trips" value={completedTrips} icon={<span className="text-sm font-bold text-emerald-600">✓</span>} />
+        <StatsCard title="Cancelled Trips" value={cancelledTrips} icon={<span className="text-sm font-bold text-red-600">×</span>} />
+        <StatsCard title="Completion Rate" value={`${tripCompletionRate}%`} icon={<span className="text-sm font-bold text-blue-600">%</span>} />
+        <StatsCard title="Average Ticket" value={`$${averageTicketValue.toFixed(2)}`} icon={<span className="text-sm font-bold text-violet-600">$</span>} />
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <h3 className="text-lg font-semibold text-gray-900">Revenue Trend (Last 14 Days)</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Revenue Trend ({period.label})</h3>
           </CardHeader>
           <CardContent>
             <BarChart data={revenueTrend} title="Revenue" color="#10b981" />
@@ -163,7 +160,7 @@ export function ReportsClient({
         </Card>
         <Card>
           <CardHeader>
-            <h3 className="text-lg font-semibold text-gray-900">Booking Trend (Last 14 Days)</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Booking Trend ({period.label})</h3>
           </CardHeader>
           <CardContent>
             <BarChart data={bookingsTrend} title="Bookings" color="#3b82f6" />
@@ -223,7 +220,7 @@ export function ReportsClient({
           <CardContent className="pt-6">
             <div className="grid grid-cols-2 gap-4">
               <div className="rounded-xl border border-gray-200 p-4 text-center">
-                <p className="text-sm text-gray-500">Promo Codes Used</p>
+                <p className="text-sm text-gray-500">Promo Codes Used (Period)</p>
                 <p className="mt-1 text-3xl font-bold text-gray-900">{promoUsageCount}</p>
               </div>
               <div className="rounded-xl border border-gray-200 p-4 text-center">
@@ -231,17 +228,20 @@ export function ReportsClient({
                 <p className="mt-1 text-3xl font-bold text-gray-900">{activePromotions}</p>
               </div>
               <div className="rounded-xl border border-gray-200 p-4 text-center">
-                <p className="text-sm text-gray-500">Revenue This Month</p>
+                <p className="text-sm text-gray-500">Revenue (Period)</p>
                 <p className="mt-1 text-3xl font-bold text-gray-900">${totalRevenue.toFixed(2)}</p>
               </div>
               <div className="rounded-xl border border-gray-200 p-4 text-center">
-                <p className="text-sm text-gray-500">Total Bookings</p>
+                <p className="text-sm text-gray-500">Bookings (Period)</p>
                 <p className="mt-1 text-3xl font-bold text-gray-900">{totalBookings}</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
+      <p className="text-right text-xs text-gray-400">
+        Trip cancellation rate for this period: {tripCancellationRate}%
+      </p>
     </div>
   );
 }

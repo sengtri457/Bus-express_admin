@@ -1,6 +1,17 @@
-import { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  createReportPeriod,
+  formatPeriodChartDate,
+  listPeriodDates,
+  type ReportPeriod,
+} from "@/lib/services/report-period";
+import {
+  assertNoQueryError,
+  fetchAllReportRows,
+} from "@/lib/services/report-query";
 
 export interface OperatorReportData {
+  period: ReportPeriod;
   operatorName: string;
   logoUrl: string | null;
   totalBuses: number;
@@ -18,18 +29,27 @@ export interface OperatorReportData {
   tripInProgress: number;
   tripCompleted: number;
   todayBookings: number;
-  busChartData: { name: string; value: number; color: string }[];
-  tripChartData: { name: string; value: number; color: string }[];
-  staffChartData: { name: string; value: number; color: string }[];
-  tripTrend: { label: string; value: number }[];
-  bookingTrend: { label: string; value: number }[];
-  
-  // Revenue enhancements
+  periodTrips: number;
+  completedTrips: number;
+  cancelledTrips: number;
+  totalBookings: number;
+  paidBookings: number;
+  confirmedBookings: number;
+  cancelledBookings: number;
+  bookingSuccessRate: number;
+  cancellationRate: number;
+  averageTicketValue: number;
+  revenuePerCompletedTrip: number;
+  busChartData: ChartSlice[];
+  tripChartData: ChartSlice[];
+  staffChartData: ChartSlice[];
+  tripTrend: ChartPoint[];
+  bookingTrend: ChartPoint[];
   totalRevenue: number;
   cashRevenue: number;
   bakongRevenue: number;
-  revenueByMethod: { name: string; value: number; color: string }[];
-  revenueTrend: { label: string; value: number }[];
+  revenueByMethod: ChartSlice[];
+  revenueTrend: ChartPoint[];
 }
 
 export interface OperatorSummary {
@@ -50,338 +70,620 @@ export interface OperatorSummary {
   completedTrips: number;
   cancelledTrips: number;
   totalBookings: number;
+  paidBookings: number;
+  confirmedBookings: number;
+  cancelledBookings: number;
   totalRevenue: number;
   cashRevenue: number;
   bakongRevenue: number;
+  completionRate: number;
+  cancellationRate: number;
+  averageTicketValue: number;
 }
 
-function todayStr() {
-  return new Date().toISOString().split("T")[0];
+interface ChartSlice {
+  name: string;
+  value: number;
+  color: string;
 }
 
-function startOfMonth() {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
+interface ChartPoint {
+  label: string;
+  value: number;
 }
 
-function lastNDays(n: number) {
-  const days: string[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    days.push(d.toISOString().split("T")[0]);
+interface OperatorRow {
+  id: string;
+  name: string;
+  logo_url: string | null;
+  status: string;
+}
+
+interface StatusRow {
+  status: string;
+}
+
+interface StaffRow extends StatusRow {
+  role: string;
+}
+
+interface TripRow extends StatusRow {
+  id: string;
+  trip_date: string;
+  schedule_id?: string;
+  schedules?: unknown;
+}
+
+interface BookingRow extends StatusRow {
+  id: string;
+  booked_at: string | null;
+  trip_id?: string;
+  trips?: unknown;
+}
+
+interface PaymentRow extends StatusRow {
+  amount: number | null;
+  method: string;
+  paid_at: string | null;
+  booking_id?: string;
+  bookings?: unknown;
+}
+
+interface AssetRow extends StatusRow {
+  operator_id: string;
+}
+
+interface RouteRow extends AssetRow {
+  id: string;
+}
+
+interface ScheduleRow extends StatusRow {
+  route_id: string;
+}
+
+type RelationValue = Record<string, unknown> | Record<string, unknown>[] | null;
+
+function oneRelation(value: unknown): Record<string, unknown> | null {
+  if (Array.isArray(value)) {
+    const first = value[0];
+    return first && typeof first === "object"
+      ? (first as Record<string, unknown>)
+      : null;
   }
-  return days;
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function relationOperatorId(row: {
+  routes?: unknown;
+  schedules?: unknown;
+  trips?: unknown;
+  bookings?: unknown;
+}) {
+  const booking = oneRelation(row.bookings);
+  const trip = oneRelation(booking?.trips ?? row.trips);
+  const schedule =
+    oneRelation(trip?.schedules ?? row.schedules) ??
+    (row.routes ? (row as Record<string, unknown>) : null);
+  const route = oneRelation(schedule?.routes);
+  return typeof route?.operator_id === "string" ? route.operator_id : null;
+}
+
+function percentage(value: number, total: number) {
+  return total > 0 ? Number(((value / total) * 100).toFixed(1)) : 0;
+}
+
+function sumPayments(payments: PaymentRow[]) {
+  return payments.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+}
+
+function dateKey(value: string | null) {
+  return value?.slice(0, 10) ?? "";
 }
 
 export async function fetchOperatorReport(
   supabase: SupabaseClient,
-  operatorId: string
+  operatorId: string,
+  period: ReportPeriod
 ): Promise<OperatorReportData> {
-  const today = todayStr();
-  const monthStart = startOfMonth();
-  const last14 = lastNDays(14);
-
-  // Basic operator info
-  const operatorRes = await supabase
+  const operatorResponse = await supabase
     .from("operators")
-    .select("name, logo_url")
+    .select("id, name, logo_url, status")
     .eq("id", operatorId)
     .single();
-  const operator = operatorRes.data;
+  assertNoQueryError("operator details", operatorResponse);
+  const operator = operatorResponse.data as OperatorRow | null;
 
-  // Direct-query data
-  const [busesRes, staffRes] = await Promise.all([
-    supabase.from("buses").select("id, status").eq("operator_id", operatorId),
-    supabase.from("users")
-      .select("id, role, status")
-      .eq("operator_id", operatorId)
-      .in("role", ["driver", "conductor"]),
+  if (!operator) {
+    throw new Error("The requested operator does not exist.");
+  }
+  const todayPeriod = createReportPeriod(period.today, period.today);
+
+  const [
+    buses,
+    staff,
+    routes,
+    schedules,
+    periodTrips,
+    todayTrips,
+    periodBookings,
+    todayBookings,
+    paidPayments,
+  ] = await Promise.all([
+    fetchAllReportRows<StatusRow>("operator buses", (from, to) =>
+      supabase
+        .from("buses")
+        .select("status")
+        .eq("operator_id", operatorId)
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllReportRows<StaffRow>("operator staff", (from, to) =>
+      supabase
+        .from("users")
+        .select("role, status")
+        .eq("operator_id", operatorId)
+        .in("role", ["driver", "conductor"])
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllReportRows<StatusRow>("operator routes", (from, to) =>
+      supabase
+        .from("routes")
+        .select("status")
+        .eq("operator_id", operatorId)
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllReportRows<StatusRow>("operator schedules", (from, to) =>
+      supabase
+        .from("schedules")
+        .select("status, routes!inner(operator_id)")
+        .eq("routes.operator_id", operatorId)
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllReportRows<TripRow>("operator trips", (from, to) =>
+      supabase
+        .from("trips")
+        .select(
+          "id, status, trip_date, schedules!inner(routes!inner(operator_id))"
+        )
+        .eq("schedules.routes.operator_id", operatorId)
+        .gte("trip_date", period.startDate)
+        .lte("trip_date", period.endDate)
+        .order("trip_date", { ascending: true })
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllReportRows<TripRow>("today's operator trips", (from, to) =>
+      supabase
+        .from("trips")
+        .select(
+          "id, status, trip_date, schedules!inner(routes!inner(operator_id))"
+        )
+        .eq("schedules.routes.operator_id", operatorId)
+        .eq("trip_date", period.today)
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllReportRows<BookingRow>("operator bookings", (from, to) =>
+      supabase
+        .from("bookings")
+        .select(
+          "id, status, booked_at, trips!inner(schedules!inner(routes!inner(operator_id)))"
+        )
+        .eq("trips.schedules.routes.operator_id", operatorId)
+        .gte("booked_at", period.startTimestamp)
+        .lt("booked_at", period.endExclusiveTimestamp)
+        .order("booked_at", { ascending: true })
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllReportRows<BookingRow>("today's operator bookings", (from, to) =>
+      supabase
+        .from("bookings")
+        .select(
+          "id, status, booked_at, trips!inner(schedules!inner(routes!inner(operator_id)))"
+        )
+        .eq("trips.schedules.routes.operator_id", operatorId)
+        .gte("booked_at", todayPeriod.startTimestamp)
+        .lt("booked_at", todayPeriod.endExclusiveTimestamp)
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllReportRows<PaymentRow>("operator payments", (from, to) =>
+      supabase
+        .from("payments")
+        .select(
+          "booking_id, amount, method, status, paid_at, bookings!inner(trips!inner(schedules!inner(routes!inner(operator_id))))"
+        )
+        .eq("status", "paid")
+        .eq("bookings.trips.schedules.routes.operator_id", operatorId)
+        .gte("paid_at", period.startTimestamp)
+        .lt("paid_at", period.endExclusiveTimestamp)
+        .order("paid_at", { ascending: true })
+        .order("id")
+        .range(from, to)
+    ),
   ]);
 
-  const buses = busesRes.data ?? [];
-  const staff = staffRes.data ?? [];
-
-  // Routes
-  const { data: routes } = await supabase
-    .from("routes")
-    .select("id, status")
-    .eq("operator_id", operatorId);
-  const activeRoutes = (routes ?? []).filter((r) => r.status === "active").length;
-
-  // Schedules and Trips
-  const [scheduleRes, tripsRes] = await Promise.all([
-    supabase
-      .from("schedules")
-      .select("id, routes!inner(operator_id)")
-      .eq("routes.operator_id", operatorId),
-    supabase
-      .from("trips")
-      .select("id, status, trip_date, schedules!inner(route_id, routes!inner(operator_id))")
-      .eq("schedules.routes.operator_id", operatorId)
-      .gte("trip_date", last14[0])
-      .order("trip_date", { ascending: true }),
-  ]);
-
-  const scheduleIds = (scheduleRes.data ?? []).map((s) => s.id);
-  const trips = tripsRes.data ?? [];
-  const todayTrips = trips.filter((t) => t.trip_date === today);
-
-  const tripIds = trips.map((t) => t.id);
-  let allBookings: { id: string; status: string; booked_at: string | null }[] = [];
-  if (tripIds.length > 0) {
-    const { data: bookingsData } = await supabase
-      .from("bookings")
-      .select("id, status, booked_at")
-      .in("trip_id", tripIds)
-      .gte("booked_at", last14[0]);
-    allBookings = bookingsData ?? [];
-  }
-
-  // Fetch payments for revenue calculations (Filter by this month)
-  let payments: { amount: number; method: string; status: string; paid_at: string | null }[] = [];
-  if (allBookings.length > 0) {
-    const bookingIds = allBookings.map((b) => b.id);
-    const { data: paymentsData } = await supabase
-      .from("payments")
-      .select("amount, method, status, paid_at")
-      .in("booking_id", bookingIds);
-    payments = paymentsData ?? [];
-  }
-
-  // ---- Stats ----
-  const totalBuses = buses.length;
-  const activeBuses = buses.filter((b) => b.status === "active").length;
-  const maintenanceBuses = buses.filter((b) => b.status === "maintenance").length;
-  const retiredBuses = buses.filter((b) => b.status === "retired").length;
-
-  const totalStaff = staff.length;
-  const activeStaff = staff.filter((s) => s.status === "active").length;
-  const drivers = staff.filter((s) => s.role === "driver").length;
-  const conductors = staff.filter((s) => s.role === "conductor").length;
-
-  const totalRoutes = (routes ?? []).length;
-  const activeSchedules = scheduleIds.length;
-
-  const tripScheduled = todayTrips.filter((t) => t.status === "scheduled").length;
-  const tripInProgress = todayTrips.filter((t) => t.status === "in_progress").length;
-  const tripCompleted = todayTrips.filter((t) => t.status === "completed").length;
-  const todayBookings = allBookings.filter(
-    (b) => b.booked_at && b.booked_at.startsWith(today)
+  const activeBuses = buses.filter((bus) => bus.status === "active").length;
+  const maintenanceBuses = buses.filter(
+    (bus) => bus.status === "maintenance"
+  ).length;
+  const retiredBuses = buses.filter((bus) => bus.status === "retired").length;
+  const activeStaff = staff.filter((member) => member.status === "active").length;
+  const drivers = staff.filter((member) => member.role === "driver").length;
+  const conductors = staff.filter(
+    (member) => member.role === "conductor"
+  ).length;
+  const activeRoutes = routes.filter((route) => route.status === "active").length;
+  const activeSchedules = schedules.filter(
+    (schedule) => schedule.status === "active"
   ).length;
 
-  // ---- Revenue calculations ----
-  const paidPayments = payments.filter((p) => p.status === "paid");
-  const totalRevenue = paidPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
-  const cashRevenue = paidPayments
-    .filter((p) => p.method === "cash")
-    .reduce((s, p) => s + (p.amount ?? 0), 0);
-  const bakongRevenue = paidPayments
-    .filter((p) => p.method === "bakong")
-    .reduce((s, p) => s + (p.amount ?? 0), 0);
+  const tripScheduled = todayTrips.filter(
+    (trip) => trip.status === "scheduled"
+  ).length;
+  const tripInProgress = todayTrips.filter(
+    (trip) => trip.status === "in_progress"
+  ).length;
+  const tripCompleted = todayTrips.filter(
+    (trip) => trip.status === "completed"
+  ).length;
+  const completedTrips = periodTrips.filter(
+    (trip) => trip.status === "completed"
+  ).length;
+  const cancelledTrips = periodTrips.filter(
+    (trip) => trip.status === "cancelled"
+  ).length;
 
-  const revenueByMethod = [
-    { name: "Cash", value: Number(cashRevenue.toFixed(2)), color: "#10b981" },
-    { name: "Bakong", value: Number(bakongRevenue.toFixed(2)), color: "#3b82f6" },
-  ].filter((d) => d.value > 0);
+  const confirmedBookings = periodBookings.filter((booking) =>
+    ["confirmed", "boarded"].includes(booking.status)
+  ).length;
+  const cancelledBookings = periodBookings.filter(
+    (booking) => booking.status === "cancelled"
+  ).length;
 
-  // ---- Charts ----
-  const busChartData = [
-    { name: "Active", value: activeBuses, color: "#10b981" },
-    { name: "Maintenance", value: maintenanceBuses, color: "#f59e0b" },
-    { name: "Retired", value: retiredBuses, color: "#ef4444" },
-  ].filter((d) => d.value > 0);
+  const totalRevenue = sumPayments(paidPayments);
+  const cashRevenue = sumPayments(
+    paidPayments.filter((payment) => payment.method === "cash")
+  );
+  const bakongRevenue = sumPayments(
+    paidPayments.filter((payment) => payment.method === "bakong")
+  );
+  const paidBookingCount = new Set(
+    paidPayments
+      .map((payment) => payment.booking_id)
+      .filter((bookingId): bookingId is string => Boolean(bookingId))
+  ).size;
+  const paymentMethodColors: Record<string, string> = {
+    cash: "#10b981",
+    bakong: "#3b82f6",
+  };
+  const paymentMethods = new Map<string, number>();
+  for (const payment of paidPayments) {
+    paymentMethods.set(
+      payment.method,
+      (paymentMethods.get(payment.method) ?? 0) + Number(payment.amount ?? 0)
+    );
+  }
 
-  const tripChartData = [
-    { name: "Scheduled", value: tripScheduled, color: "#3b82f6" },
-    { name: "In Progress", value: tripInProgress, color: "#f59e0b" },
-    { name: "Completed", value: tripCompleted, color: "#10b981" },
-  ].filter((d) => d.value > 0);
-
-  const staffChartData = [
-    { name: "Drivers", value: drivers, color: "#3b82f6" },
-    { name: "Conductors", value: conductors, color: "#8b5cf6" },
-  ].filter((d) => d.value > 0);
-
-  // ---- Trends (last 14 days) ----
-  const tripTrend = last14.map((date) => ({
-    label: new Date(date + "T00:00:00").toLocaleDateString("en", {
-      month: "short",
-      day: "numeric",
-    }),
-    value: trips.filter((t) => t.trip_date === date).length,
-  }));
-
-  const bookingTrend = last14.map((date) => ({
-    label: new Date(date + "T00:00:00").toLocaleDateString("en", {
-      month: "short",
-      day: "numeric",
-    }),
-    value: allBookings.filter((b) => b.booked_at && b.booked_at.startsWith(date)).length,
-  }));
-
-  const revenueTrend = last14.map((date) => ({
-    label: new Date(date + "T00:00:00").toLocaleDateString("en", {
-      month: "short",
-      day: "numeric",
-    }),
-    value: paidPayments
-      .filter((p) => p.paid_at && p.paid_at.startsWith(date))
-      .reduce((s, p) => s + (p.amount ?? 0), 0),
-  }));
+  const dates = listPeriodDates(period);
+  const includeYear = period.dayCount > 120;
+  const labelFor = (date: string) => formatPeriodChartDate(date, includeYear);
 
   return {
-    operatorName: operator?.name ?? "Operator",
-    logoUrl: operator?.logo_url ?? null,
-    totalBuses,
+    period,
+    operatorName: operator.name,
+    logoUrl: operator.logo_url,
+    totalBuses: buses.length,
     activeBuses,
     maintenanceBuses,
     retiredBuses,
-    totalStaff,
+    totalStaff: staff.length,
     activeStaff,
     drivers,
     conductors,
-    totalRoutes,
+    totalRoutes: routes.length,
     activeRoutes,
     activeSchedules,
     tripScheduled,
     tripInProgress,
     tripCompleted,
-    todayBookings,
-    busChartData,
-    tripChartData,
-    staffChartData,
-    tripTrend,
-    bookingTrend,
+    todayBookings: todayBookings.length,
+    periodTrips: periodTrips.length,
+    completedTrips,
+    cancelledTrips,
+    totalBookings: periodBookings.length,
+    paidBookings: paidBookingCount,
+    confirmedBookings,
+    cancelledBookings,
+    bookingSuccessRate: percentage(confirmedBookings, periodBookings.length),
+    cancellationRate: percentage(cancelledTrips, periodTrips.length),
+    averageTicketValue:
+      paidBookingCount > 0
+        ? Number((totalRevenue / paidBookingCount).toFixed(2))
+        : 0,
+    revenuePerCompletedTrip:
+      completedTrips > 0
+        ? Number((totalRevenue / completedTrips).toFixed(2))
+        : 0,
     totalRevenue,
     cashRevenue,
     bakongRevenue,
-    revenueByMethod,
-    revenueTrend,
+    busChartData: [
+      { name: "Active", value: activeBuses, color: "#10b981" },
+      {
+        name: "Maintenance",
+        value: maintenanceBuses,
+        color: "#f59e0b",
+      },
+      { name: "Retired", value: retiredBuses, color: "#ef4444" },
+    ].filter((item) => item.value > 0),
+    tripChartData: [
+      { name: "Scheduled", value: tripScheduled, color: "#3b82f6" },
+      { name: "In Progress", value: tripInProgress, color: "#f59e0b" },
+      { name: "Completed", value: tripCompleted, color: "#10b981" },
+    ].filter((item) => item.value > 0),
+    staffChartData: [
+      { name: "Drivers", value: drivers, color: "#3b82f6" },
+      { name: "Conductors", value: conductors, color: "#8b5cf6" },
+    ].filter((item) => item.value > 0),
+    revenueByMethod: [...paymentMethods.entries()]
+      .map(([method, value]) => ({
+        name:
+          method === "cash"
+            ? "Cash"
+            : method === "bakong"
+              ? "Bakong"
+              : method.charAt(0).toUpperCase() + method.slice(1),
+        value: Number(value.toFixed(2)),
+        color: paymentMethodColors[method] ?? "#64748b",
+      }))
+      .filter((item) => item.value > 0),
+    tripTrend: dates.map((date) => ({
+      label: labelFor(date),
+      value: periodTrips.filter((trip) => trip.trip_date === date).length,
+    })),
+    bookingTrend: dates.map((date) => ({
+      label: labelFor(date),
+      value: periodBookings.filter(
+        (booking) => dateKey(booking.booked_at) === date
+      ).length,
+    })),
+    revenueTrend: dates.map((date) => ({
+      label: labelFor(date),
+      value: Number(
+        sumPayments(
+          paidPayments.filter((payment) => dateKey(payment.paid_at) === date)
+        ).toFixed(2)
+      ),
+    })),
+  };
+}
+
+interface SummaryAccumulator {
+  totalBuses: number;
+  activeBuses: number;
+  totalStaff: number;
+  activeStaff: number;
+  drivers: number;
+  conductors: number;
+  totalRoutes: number;
+  activeRoutes: number;
+  activeSchedules: number;
+  totalTrips: number;
+  completedTrips: number;
+  cancelledTrips: number;
+  totalBookings: number;
+  paidBookings: number;
+  confirmedBookings: number;
+  cancelledBookings: number;
+  totalRevenue: number;
+  cashRevenue: number;
+  bakongRevenue: number;
+}
+
+function emptySummary(): SummaryAccumulator {
+  return {
+    totalBuses: 0,
+    activeBuses: 0,
+    totalStaff: 0,
+    activeStaff: 0,
+    drivers: 0,
+    conductors: 0,
+    totalRoutes: 0,
+    activeRoutes: 0,
+    activeSchedules: 0,
+    totalTrips: 0,
+    completedTrips: 0,
+    cancelledTrips: 0,
+    totalBookings: 0,
+    paidBookings: 0,
+    confirmedBookings: 0,
+    cancelledBookings: 0,
+    totalRevenue: 0,
+    cashRevenue: 0,
+    bakongRevenue: 0,
   };
 }
 
 export async function fetchAllOperatorsSummary(
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  period: ReportPeriod
 ): Promise<OperatorSummary[]> {
-  // Fetch all Operators
-  const { data: operators } = await supabase
-    .from("operators")
-    .select("id, name, logo_url, status");
+  const [operators, buses, staff, routes, schedules, trips, bookings, payments] =
+    await Promise.all([
+      fetchAllReportRows<OperatorRow>("operators", (from, to) =>
+        supabase
+          .from("operators")
+          .select("id, name, logo_url, status")
+          .order("name")
+          .range(from, to)
+      ),
+      fetchAllReportRows<AssetRow>("buses", (from, to) =>
+        supabase
+          .from("buses")
+          .select("operator_id, status")
+          .order("id")
+          .range(from, to)
+      ),
+      fetchAllReportRows<AssetRow & { role: string }>("staff", (from, to) =>
+        supabase
+          .from("users")
+          .select("operator_id, role, status")
+          .in("role", ["driver", "conductor"])
+          .not("operator_id", "is", null)
+          .order("id")
+          .range(from, to)
+      ),
+      fetchAllReportRows<RouteRow>("routes", (from, to) =>
+        supabase
+          .from("routes")
+          .select("id, operator_id, status")
+          .order("id")
+          .range(from, to)
+      ),
+      fetchAllReportRows<ScheduleRow & { routes?: RelationValue }>(
+        "schedules",
+        (from, to) =>
+          supabase
+            .from("schedules")
+            .select("route_id, status, routes!inner(operator_id)")
+            .order("id")
+            .range(from, to)
+      ),
+      fetchAllReportRows<TripRow>("trips", (from, to) =>
+        supabase
+          .from("trips")
+          .select(
+            "id, status, trip_date, schedules!inner(routes!inner(operator_id))"
+          )
+          .gte("trip_date", period.startDate)
+          .lte("trip_date", period.endDate)
+          .order("trip_date")
+          .order("id")
+          .range(from, to)
+      ),
+      fetchAllReportRows<BookingRow>("bookings", (from, to) =>
+        supabase
+          .from("bookings")
+          .select(
+            "id, status, booked_at, trips!inner(schedules!inner(routes!inner(operator_id)))"
+          )
+          .gte("booked_at", period.startTimestamp)
+          .lt("booked_at", period.endExclusiveTimestamp)
+          .order("booked_at")
+          .order("id")
+          .range(from, to)
+      ),
+      fetchAllReportRows<PaymentRow>("payments", (from, to) =>
+        supabase
+          .from("payments")
+          .select(
+            "booking_id, amount, method, status, paid_at, bookings!inner(trips!inner(schedules!inner(routes!inner(operator_id))))"
+          )
+          .eq("status", "paid")
+          .gte("paid_at", period.startTimestamp)
+          .lt("paid_at", period.endExclusiveTimestamp)
+          .order("paid_at")
+          .order("id")
+          .range(from, to)
+      ),
+    ]);
 
-  if (!operators) return [];
+  const summaries = new Map(
+    operators.map((operator) => [operator.id, emptySummary()])
+  );
+  const paidBookingsByOperator = new Map<string, Set<string>>();
+  const routeOwner = new Map(routes.map((route) => [route.id, route.operator_id]));
 
-  // Fetch Buses, Staff, Routes, Schedules
-  const [busesRes, staffRes, routesRes, schedulesRes] = await Promise.all([
-    supabase.from("buses").select("operator_id, status"),
-    supabase.from("users")
-      .select("operator_id, role, status")
-      .in("role", ["driver", "conductor"]),
-    supabase.from("routes").select("id, operator_id, status"),
-    supabase.from("schedules").select("id, route_id"),
-  ]);
+  for (const bus of buses) {
+    const summary = summaries.get(bus.operator_id);
+    if (!summary) continue;
+    summary.totalBuses += 1;
+    if (bus.status === "active") summary.activeBuses += 1;
+  }
 
-  const buses = busesRes.data ?? [];
-  const staff = staffRes.data ?? [];
-  const routes = routesRes.data ?? [];
-  const schedules = schedulesRes.data ?? [];
+  for (const member of staff) {
+    const summary = summaries.get(member.operator_id);
+    if (!summary) continue;
+    summary.totalStaff += 1;
+    if (member.status === "active") summary.activeStaff += 1;
+    if (member.role === "driver") summary.drivers += 1;
+    if (member.role === "conductor") summary.conductors += 1;
+  }
 
-  // Build lookups
-  const routeToOperator: Record<string, string> = {};
-  routes.forEach((r) => {
-    routeToOperator[r.id] = r.operator_id;
-  });
+  for (const route of routes) {
+    const summary = summaries.get(route.operator_id);
+    if (!summary) continue;
+    summary.totalRoutes += 1;
+    if (route.status === "active") summary.activeRoutes += 1;
+  }
 
-  const scheduleToOperator: Record<string, string> = {};
-  schedules.forEach((s) => {
-    const opId = routeToOperator[s.route_id];
-    if (opId) scheduleToOperator[s.id] = opId;
-  });
+  for (const schedule of schedules) {
+    const operatorId =
+      relationOperatorId(schedule) ?? routeOwner.get(schedule.route_id);
+    const summary = operatorId ? summaries.get(operatorId) : null;
+    if (summary && schedule.status === "active") summary.activeSchedules += 1;
+  }
 
-  // Fetch Trips
-  const { data: trips } = await supabase
-    .from("trips")
-    .select("id, schedule_id, status");
+  for (const trip of trips) {
+    const operatorId = relationOperatorId(trip);
+    const summary = operatorId ? summaries.get(operatorId) : null;
+    if (!summary) continue;
+    summary.totalTrips += 1;
+    if (trip.status === "completed") summary.completedTrips += 1;
+    if (trip.status === "cancelled") summary.cancelledTrips += 1;
+  }
 
-  const tripToOperator: Record<string, string> = {};
-  trips?.forEach((t) => {
-    const opId = scheduleToOperator[t.schedule_id];
-    if (opId) tripToOperator[t.id] = opId;
-  });
+  for (const booking of bookings) {
+    const operatorId = relationOperatorId(booking);
+    const summary = operatorId ? summaries.get(operatorId) : null;
+    if (!summary) continue;
+    summary.totalBookings += 1;
+    if (["confirmed", "boarded"].includes(booking.status)) {
+      summary.confirmedBookings += 1;
+    }
+    if (booking.status === "cancelled") summary.cancelledBookings += 1;
+  }
 
-  // Fetch Bookings
-  const { data: bookings } = await supabase
-    .from("bookings")
-    .select("id, trip_id, status");
+  for (const payment of payments) {
+    const operatorId = relationOperatorId(payment);
+    const summary = operatorId ? summaries.get(operatorId) : null;
+    if (!operatorId || !summary) continue;
+    const amount = Number(payment.amount ?? 0);
+    summary.totalRevenue += amount;
+    if (payment.method === "cash") summary.cashRevenue += amount;
+    if (payment.method === "bakong") summary.bakongRevenue += amount;
+    if (payment.booking_id) {
+      const bookingIds = paidBookingsByOperator.get(operatorId) ?? new Set<string>();
+      bookingIds.add(payment.booking_id);
+      paidBookingsByOperator.set(operatorId, bookingIds);
+    }
+  }
 
-  const bookingToOperator: Record<string, string> = {};
-  bookings?.forEach((b) => {
-    const opId = tripToOperator[b.trip_id];
-    if (opId) bookingToOperator[b.id] = opId;
-  });
-
-  // Fetch Payments (For revenue calculations)
-  const { data: payments } = await supabase
-    .from("payments")
-    .select("booking_id, amount, status, method");
-
-  // Summarize per operator
-  return operators.map((op) => {
-    const opBuses = buses.filter((b) => b.operator_id === op.id);
-    const opStaff = staff.filter((s) => s.operator_id === op.id);
-    const opRoutes = routes.filter((r) => r.operator_id === op.id);
-    
-    // Schedules
-    const opSchedulesCount = schedules.filter(
-      (s) => routeToOperator[s.route_id] === op.id
-    ).length;
-
-    // Trips
-    const opTrips = (trips ?? []).filter(
-      (t) => scheduleToOperator[t.schedule_id] === op.id
-    );
-
-    // Bookings
-    const opBookings = (bookings ?? []).filter(
-      (b) => tripToOperator[b.trip_id] === op.id
-    );
-
-    // Payments
-    const opPayments = (payments ?? []).filter((p) => {
-      const opId = bookingToOperator[p.booking_id];
-      return opId === op.id;
-    });
-
-    const paidPayments = opPayments.filter((p) => p.status === "paid");
-    const totalRevenue = paidPayments.reduce((s, p) => s + (p.amount ?? 0), 0);
-    const cashRevenue = paidPayments
-      .filter((p) => p.method === "cash")
-      .reduce((s, p) => s + (p.amount ?? 0), 0);
-    const bakongRevenue = paidPayments
-      .filter((p) => p.method === "bakong")
-      .reduce((s, p) => s + (p.amount ?? 0), 0);
-
+  return operators.map((operator) => {
+    const summary = summaries.get(operator.id) ?? emptySummary();
+    const paidBookings = paidBookingsByOperator.get(operator.id)?.size ?? 0;
     return {
-      operatorId: op.id,
-      operatorName: op.name,
-      logoUrl: op.logo_url,
-      status: op.status,
-      totalBuses: opBuses.length,
-      activeBuses: opBuses.filter((b) => b.status === "active").length,
-      totalStaff: opStaff.length,
-      activeStaff: opStaff.filter((s) => s.status === "active").length,
-      drivers: opStaff.filter((s) => s.role === "driver").length,
-      conductors: opStaff.filter((s) => s.role === "conductor").length,
-      totalRoutes: opRoutes.length,
-      activeRoutes: opRoutes.filter((r) => r.status === "active").length,
-      activeSchedules: opSchedulesCount,
-      totalTrips: opTrips.length,
-      completedTrips: opTrips.filter((t) => t.status === "completed").length,
-      cancelledTrips: opTrips.filter((t) => t.status === "cancelled").length,
-      totalBookings: opBookings.length,
-      totalRevenue,
-      cashRevenue,
-      bakongRevenue,
+      operatorId: operator.id,
+      operatorName: operator.name,
+      logoUrl: operator.logo_url,
+      status: operator.status,
+      ...summary,
+      paidBookings,
+      completionRate: percentage(summary.completedTrips, summary.totalTrips),
+      cancellationRate: percentage(summary.cancelledTrips, summary.totalTrips),
+      averageTicketValue:
+        paidBookings > 0
+          ? Number(
+              (summary.totalRevenue / paidBookings).toFixed(2)
+            )
+          : 0,
     };
   });
 }

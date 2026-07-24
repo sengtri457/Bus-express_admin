@@ -10,6 +10,7 @@ export interface Column<T> {
   header: string;
   render?: (item: T) => React.ReactNode;
   className?: string;
+  sortValue?: (item: T) => string | number;
 }
 
 interface DataTableProps<T> {
@@ -24,6 +25,7 @@ interface DataTableProps<T> {
   searchPlaceholder?: string;
   keyExtractor: (item: T) => string;
   onRowClick?: (item: T) => void;
+  pageSize?: number;
 }
 
 export function DataTable<T>({
@@ -38,8 +40,12 @@ export function DataTable<T>({
   searchPlaceholder = "Search...",
   keyExtractor,
   onRowClick,
+  pageSize,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(1);
 
   const filtered =
     search && searchKey
@@ -50,6 +56,37 @@ export function DataTable<T>({
             .includes(search.toLowerCase());
         })
       : data;
+  const sortColumn = columns.find((column) => column.key === sortKey);
+  const sorted = filtered
+    ? [...filtered].sort((left, right) => {
+        if (!sortColumn?.sortValue) return 0;
+        const leftValue = sortColumn.sortValue(left);
+        const rightValue = sortColumn.sortValue(right);
+        const comparison =
+          typeof leftValue === "number" && typeof rightValue === "number"
+            ? leftValue - rightValue
+            : String(leftValue).localeCompare(String(rightValue));
+        return sortDirection === "asc" ? comparison : -comparison;
+      })
+    : filtered;
+  const totalPages =
+    pageSize && sorted ? Math.max(1, Math.ceil(sorted.length / pageSize)) : 1;
+  const currentPage = Math.min(page, totalPages);
+  const visible =
+    pageSize && sorted
+      ? sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+      : sorted;
+
+  function handleSort(column: Column<T>) {
+    if (!column.sortValue) return;
+    if (sortKey === column.key) {
+      setSortDirection((direction) => (direction === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(column.key);
+      setSortDirection("asc");
+    }
+    setPage(1);
+  }
 
   if (loading) return <Loading text="Loading data..." />;
 
@@ -67,7 +104,7 @@ export function DataTable<T>({
     );
   }
 
-  if (!filtered || filtered.length === 0) {
+  if (!data || data.length === 0) {
     return (
       <EmptyState
         title={emptyTitle}
@@ -96,7 +133,10 @@ export function DataTable<T>({
             type="text"
             placeholder={searchPlaceholder}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
             className="block w-full max-w-xs rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />
         </div>
@@ -113,39 +153,94 @@ export function DataTable<T>({
                     col.className
                   )}
                 >
-                  {col.header}
+                  {col.sortValue ? (
+                    <button
+                      type="button"
+                      onClick={() => handleSort(col)}
+                      className="inline-flex items-center gap-1 hover:text-gray-900"
+                    >
+                      {col.header}
+                      <span aria-hidden="true">
+                        {sortKey === col.key
+                          ? sortDirection === "asc"
+                            ? "↑"
+                            : "↓"
+                          : "↕"}
+                      </span>
+                    </button>
+                  ) : (
+                    col.header
+                  )}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 bg-white">
-            {filtered.map((item) => (
-              <tr
-                key={keyExtractor(item)}
-                onClick={() => onRowClick?.(item)}
-                className={cn(
-                  "transition-colors hover:bg-gray-50",
-                  onRowClick && "cursor-pointer"
-                )}
-              >
-                {columns.map((col) => (
-                  <td
-                    key={col.key}
-                    className={cn(
-                      "whitespace-nowrap px-6 py-4 text-sm text-gray-900",
-                      col.className
-                    )}
-                  >
-                    {col.render
-                      ? col.render(item)
-                      : ((item as Record<string, unknown>)[col.key] as React.ReactNode) ?? "-"}
-                  </td>
-                ))}
+            {visible?.length ? (
+              visible.map((item) => (
+                <tr
+                  key={keyExtractor(item)}
+                  onClick={() => onRowClick?.(item)}
+                  className={cn(
+                    "transition-colors hover:bg-gray-50",
+                    onRowClick && "cursor-pointer"
+                  )}
+                >
+                  {columns.map((col) => (
+                    <td
+                      key={col.key}
+                      className={cn(
+                        "whitespace-nowrap px-6 py-4 text-sm text-gray-900",
+                        col.className
+                      )}
+                    >
+                      {col.render
+                        ? col.render(item)
+                        : ((item as Record<string, unknown>)[col.key] as React.ReactNode) ?? "-"}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-6 py-10 text-center text-sm text-gray-500"
+                >
+                  No matching results. Try a different search.
+                </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
+      {pageSize && sorted && sorted.length > pageSize && (
+        <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
+          <span>
+            Page {currentPage} of {totalPages} · {sorted.length} results
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={currentPage === 1}
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              className="rounded-lg border border-gray-200 px-3 py-1.5 font-medium disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={currentPage === totalPages}
+              onClick={() =>
+                setPage((value) => Math.min(totalPages, value + 1))
+              }
+              className="rounded-lg border border-gray-200 px-3 py-1.5 font-medium disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

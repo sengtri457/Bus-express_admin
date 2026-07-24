@@ -2,19 +2,26 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { StatsCard } from "@/components/shared/stats-card";
 import { DataTable, type Column } from "@/components/shared/data-table";
 import { BarChart } from "@/components/dashboard/bar-chart";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { ReportPeriodFilter } from "@/components/reports/report-period-filter";
 import type { OperatorSummary } from "@/lib/services/operator-report";
+import type { ReportPeriod } from "@/lib/services/report-period";
 
 interface OperatorsComparisonClientProps {
   summaries: OperatorSummary[];
+  period: ReportPeriod;
 }
 
-export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClientProps) {
+export function OperatorsComparisonClient({
+  summaries,
+  period,
+}: OperatorsComparisonClientProps) {
   const [exporting, setExporting] = useState(false);
   const router = useRouter();
 
@@ -27,6 +34,7 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
   const totalRoutes = summaries.reduce((s, op) => s + op.totalRoutes, 0);
   const totalTrips = summaries.reduce((s, op) => s + op.totalTrips, 0);
   const totalBookings = summaries.reduce((s, op) => s + op.totalBookings, 0);
+  const paidBookings = summaries.reduce((s, op) => s + op.paidBookings, 0);
   const totalRevenue = summaries.reduce((s, op) => s + op.totalRevenue, 0);
 
   // Chart data mapping
@@ -65,19 +73,29 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
 
   async function handleExport() {
     setExporting(true);
-    const { exportAllOperatorsCsv } = await import("@/lib/utils/csv-export");
-    exportAllOperatorsCsv(summaries);
-    setExporting(false);
+    try {
+      const { exportAllOperatorsCsv } = await import("@/lib/utils/csv-export");
+      exportAllOperatorsCsv(summaries, period);
+    } finally {
+      setExporting(false);
+    }
   }
 
   const columns: Column<OperatorSummary>[] = [
     {
       key: "operatorName",
       header: "Operator",
+      sortValue: (op) => op.operatorName,
       render: (op) => (
         <div className="flex items-center gap-3">
           {op.logoUrl ? (
-            <img src={op.logoUrl} alt={op.operatorName} className="h-8 w-8 rounded-full object-cover ring-1 ring-gray-100" />
+            <Image
+              src={op.logoUrl}
+              alt={op.operatorName}
+              width={32}
+              height={32}
+              className="h-8 w-8 rounded-full object-cover ring-1 ring-gray-100"
+            />
           ) : (
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-600">
               {op.operatorName.charAt(0).toUpperCase()}
@@ -93,11 +111,13 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
     {
       key: "status",
       header: "Status",
+      sortValue: (op) => op.status,
       render: (op) => <StatusBadge status={op.status} />,
     },
     {
       key: "buses",
       header: "Buses",
+      sortValue: (op) => op.activeBuses,
       render: (op) => (
         <span className="text-gray-700">
           <strong className="text-gray-900">{op.activeBuses}</strong>/{op.totalBuses}
@@ -107,6 +127,7 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
     {
       key: "staff",
       header: "Staff",
+      sortValue: (op) => op.activeStaff,
       render: (op) => (
         <span className="text-gray-700">
           <strong className="text-gray-900">{op.activeStaff}</strong>/{op.totalStaff}
@@ -116,26 +137,55 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
     {
       key: "routes",
       header: "Routes",
-      render: (op) => <span className="font-medium text-gray-900">{op.totalRoutes}</span>,
+      sortValue: (op) => op.totalRoutes,
+      render: (op) => (
+        <span className="text-gray-700">
+          <strong className="text-gray-900">{op.activeRoutes}</strong>/{op.totalRoutes}
+        </span>
+      ),
     },
     {
       key: "activeSchedules",
       header: "Schedules",
+      sortValue: (op) => op.activeSchedules,
       render: (op) => <span className="font-medium text-gray-900">{op.activeSchedules}</span>,
     },
     {
       key: "totalTrips",
-      header: "Trips",
+      header: "Trips (Period)",
+      sortValue: (op) => op.totalTrips,
       render: (op) => <span className="font-medium text-gray-900">{op.totalTrips}</span>,
     },
     {
       key: "totalBookings",
-      header: "Bookings",
+      header: "Bookings (Period)",
+      sortValue: (op) => op.totalBookings,
       render: (op) => <span className="font-medium text-gray-900">{op.totalBookings}</span>,
     },
     {
+      key: "completionRate",
+      header: "Completion",
+      sortValue: (op) => op.completionRate,
+      render: (op) => (
+        <span className="font-medium text-emerald-700">
+          {op.completionRate}%
+        </span>
+      ),
+    },
+    {
+      key: "cancellationRate",
+      header: "Cancellation",
+      sortValue: (op) => op.cancellationRate,
+      render: (op) => (
+        <span className="font-medium text-red-600">
+          {op.cancellationRate}%
+        </span>
+      ),
+    },
+    {
       key: "totalRevenue",
-      header: "Revenue",
+      header: "Revenue (Period)",
+      sortValue: (op) => op.totalRevenue,
       render: (op) => (
         <span className="font-semibold text-emerald-600">
           ${op.totalRevenue.toFixed(2)}
@@ -146,7 +196,7 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
       key: "actions",
       header: "Actions",
       render: (op) => (
-        <Link href={`/super-admin/reports/${op.operatorId}`} className="no-print" onClick={(e) => e.stopPropagation()}>
+        <Link href={`/super-admin/reports/${op.operatorId}?from=${period.startDate}&to=${period.endDate}`} className="no-print" onClick={(e) => e.stopPropagation()}>
           <button className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer">
             <svg className="h-3.5 w-3.5 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" />
@@ -183,6 +233,8 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
           {exporting ? "Exporting..." : "Export CSV"}
         </button>
       </div>
+
+      <ReportPeriodFilter period={period} />
 
       {/* Aggregate Stats Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -223,7 +275,7 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
           }
         />
         <StatsCard
-          title="Total Bookings"
+          title="Bookings (Period)"
           value={totalBookings}
           icon={
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -232,7 +284,7 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
           }
         />
         <StatsCard
-          title="Total Revenue"
+          title="Revenue (Period)"
           value={`$${totalRevenue.toFixed(2)}`}
           icon={
             <svg className="h-5 w-5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -242,12 +294,31 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
         />
       </div>
 
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatsCard title="Trips (Period)" value={totalTrips} icon={<span className="font-bold">T</span>} />
+        <StatsCard
+          title="Completed Trips"
+          value={summaries.reduce((sum, operator) => sum + operator.completedTrips, 0)}
+          icon={<span className="font-bold text-emerald-600">✓</span>}
+        />
+        <StatsCard
+          title="Cancelled Trips"
+          value={summaries.reduce((sum, operator) => sum + operator.cancelledTrips, 0)}
+          icon={<span className="font-bold text-red-600">×</span>}
+        />
+        <StatsCard
+          title="Average Ticket"
+          value={`$${(paidBookings > 0 ? totalRevenue / paidBookings : 0).toFixed(2)}`}
+          icon={<span className="font-bold text-violet-600">$</span>}
+        />
+      </div>
+
       {/* Comparison Table */}
       <Card className="overflow-hidden border-gray-200">
         <CardHeader className="bg-gray-50 border-b border-gray-200 py-4 px-6 flex flex-row items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Operator Comparison Table</h3>
-            <p className="text-xs text-gray-500">Overview of operator metrics (bookings, routes, staff, revenue)</p>
+            <p className="text-xs text-gray-500">Period metrics use {period.label}; fleet, staff, routes, and schedules are current</p>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -258,7 +329,8 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
             searchKey="operatorName"
             searchPlaceholder="Search operator..."
             emptyTitle="No operator data found"
-            onRowClick={(op) => router.push(`/super-admin/reports/${op.operatorId}`)}
+            pageSize={10}
+            onRowClick={(op) => router.push(`/super-admin/reports/${op.operatorId}?from=${period.startDate}&to=${period.endDate}`)}
           />
         </CardContent>
       </Card>
@@ -267,7 +339,7 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
       <div className="grid gap-6 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <h3 className="text-lg font-semibold text-gray-900">Top Operators by Revenue</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Top Operators by Revenue ({period.label})</h3>
           </CardHeader>
           <CardContent>
             <BarChart data={revenueChartData} title="Revenue" color="#10b981" />
@@ -275,7 +347,7 @@ export function OperatorsComparisonClient({ summaries }: OperatorsComparisonClie
         </Card>
         <Card>
           <CardHeader>
-            <h3 className="text-lg font-semibold text-gray-900">Top Operators by Bookings</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Top Operators by Bookings ({period.label})</h3>
           </CardHeader>
           <CardContent>
             <BarChart data={bookingsChartData} title="Bookings" color="#3b82f6" />

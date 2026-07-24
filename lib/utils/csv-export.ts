@@ -1,20 +1,6 @@
 import type { OperatorReportData, OperatorSummary } from "@/lib/services/operator-report";
-
-export interface SuperAdminReportData {
-  totalRevenue: number;
-  totalBookings: number;
-  activeTrips: number;
-  activeOperators: number;
-  totalUsers: number;
-  activePromotions: number;
-  revenueByMethod: { name: string; value: number }[];
-  bookingsByStatus: { name: string; value: number }[];
-  tripsByStatus: { name: string; value: number }[];
-  revenueTrend: { label: string; value: number }[];
-  bookingsTrend: { label: string; value: number }[];
-  usersByRole: { name: string; value: number }[];
-  promoUsageCount: number;
-}
+import type { ReportPeriod } from "@/lib/services/report-period";
+import type { SystemReportData } from "@/lib/services/system-report";
 
 function triggerDownload(csvContent: string, filename: string) {
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -26,29 +12,39 @@ function triggerDownload(csvContent: string, filename: string) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 function escape(val: string | number | null | undefined): string {
   if (val === null || val === undefined) return "";
-  const str = String(val);
+  const raw = String(val);
+  const str = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
   return `"${str.replace(/"/g, '""')}"`;
 }
 
-export function exportSuperAdminCsv(data: SuperAdminReportData) {
+export function exportSuperAdminCsv(data: SystemReportData) {
   const lines: string[] = [];
 
   // Title
   lines.push(`${escape("BusExpress System Report")}`);
   lines.push(`${escape("Generated")},${escape(new Date().toLocaleString())}`);
+  lines.push(`${escape("Period")},${escape(data.period.label)}`);
   lines.push("");
 
   // Key Metrics
   lines.push(`${escape("KEY METRICS")}`);
   lines.push(`${escape("Metric")},${escape("Value")}`);
-  lines.push(`${escape("Revenue (Month)")},${escape(`$${data.totalRevenue.toFixed(2)}`)}`);
-  lines.push(`${escape("Bookings (Month)")},${escape(data.totalBookings)}`);
-  lines.push(`${escape("Active Trips (Today)")},${escape(data.activeTrips)}`);
-  lines.push(`${escape("Active Operators")},${escape(data.activeOperators)}`);
+  lines.push(`${escape("Revenue (Period)")},${escape(`$${data.totalRevenue.toFixed(2)}`)}`);
+  lines.push(`${escape("Bookings (Period)")},${escape(data.totalBookings)}`);
+  lines.push(`${escape("Paid Bookings")},${escape(data.paidBookings)}`);
+  lines.push(`${escape("Trips (Period)")},${escape(data.periodTrips)}`);
+  lines.push(`${escape("Completed Trips")},${escape(data.completedTrips)}`);
+  lines.push(`${escape("Cancelled Trips")},${escape(data.cancelledTrips)}`);
+  lines.push(`${escape("Completion Rate")},${escape(`${data.tripCompletionRate}%`)}`);
+  lines.push(`${escape("Cancellation Rate")},${escape(`${data.tripCancellationRate}%`)}`);
+  lines.push(`${escape("Average Ticket")},${escape(`$${data.averageTicketValue.toFixed(2)}`)}`);
+  lines.push(`${escape("Active Trips (Today)")},${escape(data.activeTripsToday)}`);
+  lines.push(`${escape("Active Operators")},${escape(`${data.activeOperators}/${data.totalOperators}`)}`);
   lines.push(`${escape("Total Users")},${escape(data.totalUsers)}`);
   lines.push(`${escape("Active Promotions")},${escape(data.activePromotions)}`);
   lines.push(`${escape("Promo Codes Used")},${escape(data.promoUsageCount)}`);
@@ -111,20 +107,28 @@ export function exportOperatorCsv(data: OperatorReportData) {
   // Title
   lines.push(`${escape(`${data.operatorName} — Performance Report`)}`);
   lines.push(`${escape("Generated")},${escape(new Date().toLocaleString())}`);
+  lines.push(`${escape("Period")},${escape(data.period.label)}`);
   lines.push("");
 
   // Key Metrics
   lines.push(`${escape("KEY METRICS")}`);
   lines.push(`${escape("Metric")},${escape("Value")}`);
-  if (data.totalRevenue !== undefined) {
-    lines.push(`${escape("Revenue (Month)")},${escape(`$${data.totalRevenue.toFixed(2)}`)}`);
-  }
+  lines.push(`${escape("Revenue (Period)")},${escape(`$${data.totalRevenue.toFixed(2)}`)}`);
   lines.push(`${escape("Buses (Active/Total)")},${escape(`${data.activeBuses}/${data.totalBuses}`)}`);
   lines.push(`${escape("Routes (Active/Total)")},${escape(`${data.activeRoutes}/${data.totalRoutes}`)}`);
   lines.push(`${escape("Active Schedules")},${escape(data.activeSchedules)}`);
   lines.push(`${escape("Staff (Active/Total)")},${escape(`${data.activeStaff}/${data.totalStaff}`)}`);
   lines.push(`${escape("Today's Trips")},${escape(data.tripScheduled + data.tripInProgress + data.tripCompleted)}`);
   lines.push(`${escape("Today's Bookings")},${escape(data.todayBookings)}`);
+  lines.push(`${escape("Trips (Period)")},${escape(data.periodTrips)}`);
+  lines.push(`${escape("Completed Trips")},${escape(data.completedTrips)}`);
+  lines.push(`${escape("Cancelled Trips")},${escape(data.cancelledTrips)}`);
+  lines.push(`${escape("Bookings (Period)")},${escape(data.totalBookings)}`);
+  lines.push(`${escape("Paid Bookings")},${escape(data.paidBookings)}`);
+  lines.push(`${escape("Booking Success Rate")},${escape(`${data.bookingSuccessRate}%`)}`);
+  lines.push(`${escape("Trip Cancellation Rate")},${escape(`${data.cancellationRate}%`)}`);
+  lines.push(`${escape("Average Ticket")},${escape(`$${data.averageTicketValue.toFixed(2)}`)}`);
+  lines.push(`${escape("Revenue per Completed Trip")},${escape(`$${data.revenuePerCompletedTrip.toFixed(2)}`)}`);
   lines.push("");
 
   // Fleet Status
@@ -190,12 +194,16 @@ export function exportOperatorCsv(data: OperatorReportData) {
   triggerDownload(csvContent, `busexpress-${data.operatorName.toLowerCase().replace(/\s+/g, "-")}-report.csv`);
 }
 
-export function exportAllOperatorsCsv(data: OperatorSummary[]) {
+export function exportAllOperatorsCsv(
+  data: OperatorSummary[],
+  period: ReportPeriod
+) {
   const lines: string[] = [];
 
   // Title
   lines.push(`${escape("All Operators Comparison Report")}`);
   lines.push(`${escape("Generated")},${escape(new Date().toLocaleString())}`);
+  lines.push(`${escape("Period")},${escape(period.label)}`);
   lines.push("");
 
   // Aggregated totals
@@ -211,8 +219,8 @@ export function exportAllOperatorsCsv(data: OperatorSummary[]) {
   lines.push(`${escape("Total Operators")},${escape(totalOps)}`);
   lines.push(`${escape("Total Buses (Active/Total)")},${escape(`${activeBuses}/${totalBuses}`)}`);
   lines.push(`${escape("Total Staff")},${escape(totalStaff)}`);
-  lines.push(`${escape("Total Bookings")},${escape(totalBookings)}`);
-  lines.push(`${escape("Total Revenue")},${escape(`$${totalRevenue.toFixed(2)}`)}`);
+  lines.push(`${escape("Bookings (Period)")},${escape(totalBookings)}`);
+  lines.push(`${escape("Revenue (Period)")},${escape(`$${totalRevenue.toFixed(2)}`)}`);
   lines.push("");
 
   // Comparison details
@@ -230,9 +238,13 @@ export function exportAllOperatorsCsv(data: OperatorSummary[]) {
     escape("Completed Trips"),
     escape("Cancelled Trips"),
     escape("Bookings"),
+    escape("Paid Bookings"),
     escape("Revenue"),
     escape("Cash Revenue"),
-    escape("Bakong Revenue")
+    escape("Bakong Revenue"),
+    escape("Trip Completion Rate"),
+    escape("Trip Cancellation Rate"),
+    escape("Average Ticket")
   ].join(","));
 
   data.forEach(op => {
@@ -249,9 +261,13 @@ export function exportAllOperatorsCsv(data: OperatorSummary[]) {
       escape(op.completedTrips),
       escape(op.cancelledTrips),
       escape(op.totalBookings),
+      escape(op.paidBookings),
       escape(`$${op.totalRevenue.toFixed(2)}`),
       escape(`$${op.cashRevenue.toFixed(2)}`),
-      escape(`$${op.bakongRevenue.toFixed(2)}`)
+      escape(`$${op.bakongRevenue.toFixed(2)}`),
+      escape(`${op.completionRate}%`),
+      escape(`${op.cancellationRate}%`),
+      escape(`$${op.averageTicketValue.toFixed(2)}`)
     ].join(","));
   });
 

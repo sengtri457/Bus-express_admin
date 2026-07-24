@@ -1,5 +1,12 @@
 # Each Operator Report (Per-Operator View for Super Admin)
 
+> **Implementation status (July 2026):** Implemented for both operator admins
+> and super-admin drill-down. Revenue is filtered by payment date, schedules use
+> their real active status, all period metrics share a Cambodia-aware date
+> range, large result sets are paginated, and failed queries show an explicit
+> retry state instead of zero totals. The proposal below is retained as design
+> context.
+
 ## Current State
 
 The existing operator report at `app/(dashboard)/operator/reports/page.tsx` is **only accessible to** **`operator_admin`** **role**. A logged-in operator\_admin sees their own operator's data, filtered by `operator_id` from their profile.

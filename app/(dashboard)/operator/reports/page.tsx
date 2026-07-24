@@ -1,9 +1,22 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { fetchOperatorReport } from "@/lib/services/operator-report";
+import {
+  createReportPeriod,
+  getSearchParam,
+} from "@/lib/services/report-period";
 import { OperatorReportsClient } from "./client";
 
-export default async function OperatorReports() {
+interface OperatorReportsPageProps {
+  searchParams: Promise<{
+    from?: string | string[];
+    to?: string | string[];
+  }>;
+}
+
+export default async function OperatorReports({
+  searchParams,
+}: OperatorReportsPageProps) {
   const supabase = await createClient();
 
   const {
@@ -21,7 +34,16 @@ export default async function OperatorReports() {
     redirect("/login");
   }
 
-  const reportData = await fetchOperatorReport(supabase, profile.operator_id);
+  const query = await searchParams;
+  const period = createReportPeriod(
+    getSearchParam(query.from),
+    getSearchParam(query.to)
+  );
+  const reportData = await fetchOperatorReport(
+    supabase,
+    profile.operator_id,
+    period
+  );
 
   return (
     <OperatorReportsClient
@@ -45,7 +67,18 @@ export default async function OperatorReports() {
       staffChartData={reportData.staffChartData}
       tripTrend={reportData.tripTrend}
       bookingTrend={reportData.bookingTrend}
-      // Pass revenue fields to enable enhancements in operator view too
+      period={reportData.period}
+      periodTrips={reportData.periodTrips}
+      completedTrips={reportData.completedTrips}
+      cancelledTrips={reportData.cancelledTrips}
+      totalBookings={reportData.totalBookings}
+      paidBookings={reportData.paidBookings}
+      confirmedBookings={reportData.confirmedBookings}
+      cancelledBookings={reportData.cancelledBookings}
+      bookingSuccessRate={reportData.bookingSuccessRate}
+      cancellationRate={reportData.cancellationRate}
+      averageTicketValue={reportData.averageTicketValue}
+      revenuePerCompletedTrip={reportData.revenuePerCompletedTrip}
       totalRevenue={reportData.totalRevenue}
       cashRevenue={reportData.cashRevenue}
       bakongRevenue={reportData.bakongRevenue}
