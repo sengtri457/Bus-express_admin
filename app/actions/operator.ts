@@ -257,3 +257,83 @@ export async function toggleStaffStatus(id: string, status: string) {
   if (error) return { error: error.message };
   revalidatePath("/operator/staff");
 }
+
+// ── Stops ──────────────────────────────────────────────────────────────────
+
+export async function createStop(formData: FormData) {
+  const supabase = await createClient();
+  const name = formData.get("name") as string;
+  const latRaw = formData.get("lat") as string;
+  const lngRaw = formData.get("lng") as string;
+
+  const { error } = await supabase.from("stops").insert({
+    name,
+    lat: latRaw ? Number(latRaw) : null,
+    lng: lngRaw ? Number(lngRaw) : null,
+  });
+
+  if (error) return { error: error.message };
+  revalidatePath("/operator/stops");
+}
+
+export async function updateStop(formData: FormData) {
+  const supabase = await createClient();
+  const id = formData.get("id") as string;
+  const latRaw = formData.get("lat") as string;
+  const lngRaw = formData.get("lng") as string;
+
+  const { error } = await supabase
+    .from("stops")
+    .update({
+      name: formData.get("name") as string,
+      lat: latRaw ? Number(latRaw) : null,
+      lng: lngRaw ? Number(lngRaw) : null,
+    })
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+  revalidatePath("/operator/stops");
+}
+
+export async function deleteStop(id: string) {
+  const supabase = await createClient();
+
+  const { error } = await supabase.from("stops").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/operator/stops");
+}
+
+// ── Route Stops ────────────────────────────────────────────────────────────
+
+export async function saveRouteStops(formData: FormData) {
+  const supabase = await createClient();
+  const routeId = formData.get("route_id") as string;
+  const stopsJson = formData.get("stops") as string;
+
+  const stops: { stop_id: string; stop_order: number; arrival_offset: number; departure_offset: number }[] =
+    JSON.parse(stopsJson);
+
+  const { error: deleteError } = await supabase
+    .from("route_stops")
+    .delete()
+    .eq("route_id", routeId);
+
+  if (deleteError) return { error: deleteError.message };
+
+  if (stops.length > 0) {
+    const { error: insertError } = await supabase.from("route_stops").insert(
+      stops.map((s) => ({
+        route_id: routeId,
+        stop_id: s.stop_id,
+        stop_order: s.stop_order,
+        arrival_offset: s.arrival_offset,
+        departure_offset: s.departure_offset,
+      }))
+    );
+
+    if (insertError) return { error: insertError.message };
+  }
+
+  revalidatePath("/operator/routes");
+  revalidatePath("/operator/stops");
+}

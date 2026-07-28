@@ -13,6 +13,7 @@ import {
   updateRouteStatus,
   deleteRoute,
 } from "@/app/actions/operator";
+import { RouteStopsModal } from "./route-stops-modal";
 import type { Route } from "@/lib/types";
 
 interface RoutesClientProps {
@@ -31,6 +32,7 @@ export function RoutesClient({ routes, operatorId }: RoutesClientProps) {
   const router = useRouter();
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Route | null>(null);
+  const [managingStops, setManagingStops] = useState<Route | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleAdd(formData: FormData) {
@@ -119,6 +121,16 @@ export function RoutesClient({ routes, operatorId }: RoutesClientProps) {
 
               <div className="mt-3 flex items-center justify-end gap-1.5 border-t border-gray-100 pt-3">
                 <button
+                  onClick={() => { setManagingStops(r); setError(null); }}
+                  className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                  title="Manage Stops"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                  </svg>
+                </button>
+                <button
                   onClick={() => { setEditing(r); setError(null); }}
                   className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
                   title="Edit"
@@ -202,6 +214,12 @@ export function RoutesClient({ routes, operatorId }: RoutesClientProps) {
           </div>
         </form>
       </Modal>
+
+      <RouteStopsModal
+        route={managingStops}
+        open={!!managingStops}
+        onClose={() => setManagingStops(null)}
+      />
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   Tags,
   Navigation,
   Coins,
+  MapPin,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -50,6 +51,7 @@ const operatorSections: NavSection[] = [
     title: "Operations",
     items: [
       { label: "Routes", href: "/operator/routes", icon: Route },
+      { label: "Stops", href: "/operator/stops", icon: MapPin },
       { label: "Buses", href: "/operator/buses", icon: Bus },
       { label: "Schedules", href: "/operator/schedules", icon: Calendar },
       { label: "Staff", href: "/operator/staff", icon: UserCog },

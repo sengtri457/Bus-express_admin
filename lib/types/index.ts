@@ -40,6 +40,24 @@ export interface Bus {
   created_at: string | null;
 }
 
+export interface Stop {
+  id: string;
+  name: string;
+  lat: number | null;
+  lng: number | null;
+  created_at: string | null;
+}
+
+export interface RouteStop {
+  id: string;
+  route_id: string;
+  stop_id: string;
+  stop_order: number;
+  arrival_offset: number;
+  departure_offset: number;
+  stops?: Stop;
+}
+
 export interface Route {
   id: string;
   operator_id: string;
