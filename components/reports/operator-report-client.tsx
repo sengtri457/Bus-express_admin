@@ -48,6 +48,8 @@ interface OperatorReportsClientProps {
   bakongRevenue: number;
   revenueByMethod: { name: string; value: number; color: string }[];
   revenueTrend: { label: string; value: number }[];
+  cashBookingsCount: number;
+  bakongBookingsCount: number;
 
   // Navigation & Export
   backHref?: string;
@@ -92,68 +94,78 @@ export function OperatorReportsClient({
   bakongRevenue,
   revenueByMethod,
   revenueTrend,
+  cashBookingsCount,
+  bakongBookingsCount,
   backHref,
   exportType = "pdf",
 }: OperatorReportsClientProps) {
-  const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const todayTrips = tripScheduled + tripInProgress + tripCompleted;
 
-  async function handleExport() {
-    setExporting(true);
-    const exportData = {
-      period,
-      operatorName,
-      logoUrl,
-      totalBuses,
-      activeBuses,
-      maintenanceBuses:
-        busChartData.find((item) => item.name === "Maintenance")?.value ?? 0,
-      retiredBuses:
-        busChartData.find((item) => item.name === "Retired")?.value ?? 0,
-      totalRoutes,
-      activeRoutes,
-      activeSchedules,
-      totalStaff,
-      activeStaff,
-      tripScheduled,
-      tripInProgress,
-      tripCompleted,
-      todayBookings,
-      drivers,
-      conductors,
-      busChartData,
-      tripChartData,
-      staffChartData,
-      tripTrend,
-      bookingTrend,
-      periodTrips,
-      completedTrips,
-      cancelledTrips,
-      totalBookings,
-      paidBookings,
-      confirmedBookings,
-      cancelledBookings,
-      bookingSuccessRate,
-      cancellationRate,
-      averageTicketValue,
-      revenuePerCompletedTrip,
-      totalRevenue,
-      cashRevenue,
-      bakongRevenue,
-      revenueByMethod,
-      revenueTrend,
-    };
+  const getExportData = () => ({
+    period,
+    operatorName,
+    logoUrl,
+    totalBuses,
+    activeBuses,
+    maintenanceBuses:
+      busChartData.find((item) => item.name === "Maintenance")?.value ?? 0,
+    retiredBuses:
+      busChartData.find((item) => item.name === "Retired")?.value ?? 0,
+    totalRoutes,
+    activeRoutes,
+    activeSchedules,
+    totalStaff,
+    activeStaff,
+    tripScheduled,
+    tripInProgress,
+    tripCompleted,
+    todayBookings,
+    drivers,
+    conductors,
+    busChartData,
+    tripChartData,
+    staffChartData,
+    tripTrend,
+    bookingTrend,
+    periodTrips,
+    completedTrips,
+    cancelledTrips,
+    totalBookings,
+    paidBookings,
+    confirmedBookings,
+    cancelledBookings,
+    bookingSuccessRate,
+    cancellationRate,
+    averageTicketValue,
+    revenuePerCompletedTrip,
+    totalRevenue,
+    cashRevenue,
+    bakongRevenue,
+    revenueByMethod,
+    revenueTrend,
+    cashBookingsCount,
+    bakongBookingsCount,
+  });
 
+  async function handleExportPdf() {
+    setExportingPdf(true);
     try {
-      if (exportType === "csv") {
-        const { exportOperatorCsv } = await import("@/lib/utils/csv-export");
-        exportOperatorCsv(exportData);
-      } else {
-        const { generateOperatorPdf } = await import("@/lib/utils/pdf-export");
-        await generateOperatorPdf(exportData);
-      }
+      const { generateOperatorPdf } = await import("@/lib/utils/pdf-export");
+      await generateOperatorPdf(getExportData());
     } finally {
-      setExporting(false);
+      setExportingPdf(false);
+    }
+  }
+
+  async function handleExportCsv() {
+    setExportingCsv(true);
+    try {
+      const { exportOperatorCsv } = await import("@/lib/utils/csv-export");
+      exportOperatorCsv(getExportData());
+    } finally {
+      setExportingCsv(false);
     }
   }
 
@@ -193,16 +205,28 @@ export function OperatorReportsClient({
             <p className="text-sm text-gray-500">Operator analytics and performance</p>
           </div>
         </div>
-        <button
-          onClick={handleExport}
-          disabled={exporting}
-          className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 shadow-sm cursor-pointer"
-        >
-          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-          </svg>
-          {exporting ? "Exporting..." : exportType === "csv" ? "Export CSV" : "Download PDF"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportPdf}
+            disabled={exportingPdf || exportingCsv}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 shadow-sm cursor-pointer"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            {exportingPdf ? "Exporting..." : "Export PDF"}
+          </button>
+          <button
+            onClick={handleExportCsv}
+            disabled={exportingCsv || exportingPdf}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 shadow-sm cursor-pointer"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            {exportingCsv ? "Exporting..." : "Export CSV"}
+          </button>
+        </div>
       </div>
 
       <ReportPeriodFilter period={period} />

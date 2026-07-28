@@ -47,6 +47,8 @@ export function PerOperatorReportClient({ reportData }: PerOperatorReportClientP
       bakongRevenue={reportData.bakongRevenue}
       revenueByMethod={reportData.revenueByMethod}
       revenueTrend={reportData.revenueTrend}
+      cashBookingsCount={reportData.cashBookingsCount}
+      bakongBookingsCount={reportData.bakongBookingsCount}
       backHref={`/super-admin/reports/operators?from=${reportData.period.startDate}&to=${reportData.period.endDate}`}
       exportType="csv"
     />

@@ -84,6 +84,8 @@ export default async function OperatorReports({
       bakongRevenue={reportData.bakongRevenue}
       revenueByMethod={reportData.revenueByMethod}
       revenueTrend={reportData.revenueTrend}
+      cashBookingsCount={reportData.cashBookingsCount}
+      bakongBookingsCount={reportData.bakongBookingsCount}
     />
   );
 }

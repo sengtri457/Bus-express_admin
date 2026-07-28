@@ -57,6 +57,8 @@ export interface SystemReportData {
   bookingsTrend: ChartPoint[];
   usersByRole: ChartSlice[];
   promoUsageCount: number;
+  cashBookingsCount: number;
+  bakongBookingsCount: number;
 }
 
 interface ChartSlice {
@@ -159,6 +161,14 @@ export async function fetchSystemReport(
   const paidBookingCount = new Set(
     payments.map((payment) => payment.booking_id)
   ).size;
+  const cashPayments = payments.filter((p) => p.method === "cash");
+  const bakongPayments = payments.filter((p) => p.method === "bakong");
+  const cashBookingsCount = new Set(
+    cashPayments.map((p) => p.booking_id).filter(Boolean)
+  ).size;
+  const bakongBookingsCount = new Set(
+    bakongPayments.map((p) => p.booking_id).filter(Boolean)
+  ).size;
   const completedTrips = trips.filter(
     (trip) => trip.status === "completed"
   ).length;
@@ -232,6 +242,8 @@ export async function fetchSystemReport(
     totalRevenue,
     totalBookings: bookings.length,
     paidBookings: paidBookingCount,
+    cashBookingsCount,
+    bakongBookingsCount,
     activeTripsToday: activeTripsResponse.count ?? 0,
     periodTrips: trips.length,
     completedTrips,

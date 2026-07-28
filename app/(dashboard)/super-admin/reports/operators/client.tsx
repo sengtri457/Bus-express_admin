@@ -71,6 +71,8 @@ export function OperatorsComparisonClient({
     .sort((a, b) => b.totalBookings - a.totalBookings)
     .slice(0, 5);
 
+  const [exportingPdf, setExportingPdf] = useState(false);
+
   async function handleExport() {
     setExporting(true);
     try {
@@ -78,6 +80,16 @@ export function OperatorsComparisonClient({
       exportAllOperatorsCsv(summaries, period);
     } finally {
       setExporting(false);
+    }
+  }
+
+  async function handleExportPdf() {
+    setExportingPdf(true);
+    try {
+      const { generateAllOperatorsPdf } = await import("@/lib/utils/pdf-export");
+      await generateAllOperatorsPdf(summaries, period);
+    } finally {
+      setExportingPdf(false);
     }
   }
 
@@ -222,16 +234,28 @@ export function OperatorsComparisonClient({
           <h2 className="text-2xl font-bold text-gray-900">Operators Comparison</h2>
           <p className="text-sm text-gray-500">Comparative analysis and ranking of all bus operators</p>
         </div>
-        <button
-          onClick={handleExport}
-          disabled={exporting}
-          className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 shadow-sm cursor-pointer"
-        >
-          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-          </svg>
-          {exporting ? "Exporting..." : "Export CSV"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportPdf}
+            disabled={exportingPdf || exporting}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 shadow-sm cursor-pointer"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            {exportingPdf ? "Exporting..." : "Export PDF"}
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={exporting || exportingPdf}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 shadow-sm cursor-pointer"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            {exporting ? "Exporting..." : "Export CSV"}
+          </button>
+        </div>
       </div>
 
       <ReportPeriodFilter period={period} />

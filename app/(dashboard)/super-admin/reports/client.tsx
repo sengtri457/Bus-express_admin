@@ -39,6 +39,8 @@ export function ReportsClient({ reportData }: ReportsClientProps) {
     promoUsageCount,
   } = reportData;
 
+  const [exportingPdf, setExportingPdf] = useState(false);
+
   async function handleExport() {
     setExporting(true);
     try {
@@ -46,6 +48,16 @@ export function ReportsClient({ reportData }: ReportsClientProps) {
       exportSuperAdminCsv(reportData);
     } finally {
       setExporting(false);
+    }
+  }
+
+  async function handleExportPdf() {
+    setExportingPdf(true);
+    try {
+      const { generateSuperAdminPdf } = await import("@/lib/utils/pdf-export");
+      await generateSuperAdminPdf(reportData);
+    } finally {
+      setExportingPdf(false);
     }
   }
 
@@ -72,7 +84,13 @@ export function ReportsClient({ reportData }: ReportsClientProps) {
               Operators Comparison
             </button>
           </Link>
-          <button onClick={handleExport} disabled={exporting} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 cursor-pointer">
+          <button onClick={handleExportPdf} disabled={exportingPdf || exporting} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 cursor-pointer">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            {exportingPdf ? "Exporting..." : "Export PDF"}
+          </button>
+          <button onClick={handleExport} disabled={exporting || exportingPdf} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 cursor-pointer">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>

@@ -61,7 +61,8 @@ export function createReportPeriod(from?: string, to?: string): ReportPeriod {
   const dayCount = Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
 
   if (dayCount > MAX_REPORT_DAYS) {
-    throw new Error(`Report date ranges cannot exceed ${MAX_REPORT_DAYS} days.`);
+    const clampedEnd = addDays(startDate, MAX_REPORT_DAYS - 1);
+    return createReportPeriod(startDate, clampedEnd);
   }
 
   return {

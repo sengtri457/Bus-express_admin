@@ -48,6 +48,8 @@ export interface OperatorReportData {
   totalRevenue: number;
   cashRevenue: number;
   bakongRevenue: number;
+  cashBookingsCount: number;
+  bakongBookingsCount: number;
   revenueByMethod: ChartSlice[];
   revenueTrend: ChartPoint[];
 }
@@ -76,6 +78,8 @@ export interface OperatorSummary {
   totalRevenue: number;
   cashRevenue: number;
   bakongRevenue: number;
+  cashBookingsCount: number;
+  bakongBookingsCount: number;
   completionRate: number;
   cancellationRate: number;
   averageTicketValue: number;
@@ -348,12 +352,19 @@ export async function fetchOperatorReport(
   ).length;
 
   const totalRevenue = sumPayments(paidPayments);
-  const cashRevenue = sumPayments(
-    paidPayments.filter((payment) => payment.method === "cash")
-  );
-  const bakongRevenue = sumPayments(
-    paidPayments.filter((payment) => payment.method === "bakong")
-  );
+  const cashPayments = paidPayments.filter((p) => p.method === "cash");
+  const bakongPayments = paidPayments.filter((p) => p.method === "bakong");
+  const cashRevenue = sumPayments(cashPayments);
+  const bakongRevenue = sumPayments(bakongPayments);
+
+  const cashBookingsCount = new Set(
+    cashPayments.map((p) => p.booking_id).filter((id): id is string => Boolean(id))
+  ).size;
+
+  const bakongBookingsCount = new Set(
+    bakongPayments.map((p) => p.booking_id).filter((id): id is string => Boolean(id))
+  ).size;
+
   const paidBookingCount = new Set(
     paidPayments
       .map((payment) => payment.booking_id)
@@ -414,6 +425,8 @@ export async function fetchOperatorReport(
     totalRevenue,
     cashRevenue,
     bakongRevenue,
+    cashBookingsCount,
+    bakongBookingsCount,
     busChartData: [
       { name: "Active", value: activeBuses, color: "#10b981" },
       {
@@ -485,6 +498,8 @@ interface SummaryAccumulator {
   totalRevenue: number;
   cashRevenue: number;
   bakongRevenue: number;
+  cashBookingsCount: number;
+  bakongBookingsCount: number;
 }
 
 function emptySummary(): SummaryAccumulator {
@@ -508,6 +523,8 @@ function emptySummary(): SummaryAccumulator {
     totalRevenue: 0,
     cashRevenue: 0,
     bakongRevenue: 0,
+    cashBookingsCount: 0,
+    bakongBookingsCount: 0,
   };
 }
 
@@ -651,14 +668,31 @@ export async function fetchAllOperatorsSummary(
     if (booking.status === "cancelled") summary.cancelledBookings += 1;
   }
 
+  const paidCashBookingsByOperator = new Map<string, Set<string>>();
+  const paidBakongBookingsByOperator = new Map<string, Set<string>>();
+
   for (const payment of payments) {
     const operatorId = relationOperatorId(payment);
     const summary = operatorId ? summaries.get(operatorId) : null;
     if (!operatorId || !summary) continue;
     const amount = Number(payment.amount ?? 0);
     summary.totalRevenue += amount;
-    if (payment.method === "cash") summary.cashRevenue += amount;
-    if (payment.method === "bakong") summary.bakongRevenue += amount;
+    if (payment.method === "cash") {
+      summary.cashRevenue += amount;
+      if (payment.booking_id) {
+        const bookingIds = paidCashBookingsByOperator.get(operatorId) ?? new Set<string>();
+        bookingIds.add(payment.booking_id);
+        paidCashBookingsByOperator.set(operatorId, bookingIds);
+      }
+    }
+    if (payment.method === "bakong") {
+      summary.bakongRevenue += amount;
+      if (payment.booking_id) {
+        const bookingIds = paidBakongBookingsByOperator.get(operatorId) ?? new Set<string>();
+        bookingIds.add(payment.booking_id);
+        paidBakongBookingsByOperator.set(operatorId, bookingIds);
+      }
+    }
     if (payment.booking_id) {
       const bookingIds = paidBookingsByOperator.get(operatorId) ?? new Set<string>();
       bookingIds.add(payment.booking_id);
@@ -669,6 +703,8 @@ export async function fetchAllOperatorsSummary(
   return operators.map((operator) => {
     const summary = summaries.get(operator.id) ?? emptySummary();
     const paidBookings = paidBookingsByOperator.get(operator.id)?.size ?? 0;
+    const cashBookingsCount = paidCashBookingsByOperator.get(operator.id)?.size ?? 0;
+    const bakongBookingsCount = paidBakongBookingsByOperator.get(operator.id)?.size ?? 0;
     return {
       operatorId: operator.id,
       operatorName: operator.name,
@@ -676,6 +712,8 @@ export async function fetchAllOperatorsSummary(
       status: operator.status,
       ...summary,
       paidBookings,
+      cashBookingsCount,
+      bakongBookingsCount,
       completionRate: percentage(summary.completedTrips, summary.totalTrips),
       cancellationRate: percentage(summary.cancelledTrips, summary.totalTrips),
       averageTicketValue:
