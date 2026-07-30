@@ -9,12 +9,21 @@ import { fetchRoadRoute } from "@/app/actions/fetch-road-route";
 interface DriverPoint {
   id: string;
   name: string | null;
+  isWebTracking: boolean;
   trip: {
     routeName: string;
     origin: string;
     destination: string;
     busPlate: string;
     status: string;
+    tripDate: string;
+    arrivalTime: string;
+    stops: {
+      name: string;
+      latitude: number | null;
+      longitude: number | null;
+      order: number;
+    }[];
   } | null;
   location: {
     latitude: number;
@@ -248,6 +257,39 @@ function formatDistance(km: number): string {
   return `${km.toFixed(1)} km`;
 }
 
+// ── Custom Stop Icon ──────────────────────────────────────────────────────
+function makeStopIcon(order: number, isFirst: boolean, isLast: boolean) {
+  const bg = isFirst ? "#10B981" : isLast ? "#EF4444" : "#2563EB";
+  const content = isFirst 
+    ? "🟢" 
+    : isLast 
+      ? "🏁" 
+      : `<div style="
+          color: white; 
+          font-weight: 700; 
+          font-size: 11px; 
+          line-height: 18px; 
+          text-align: center;
+        ">${order + 1}</div>`;
+
+  return L.divIcon({
+    className: "",
+    html: `<div style="
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: ${bg};
+      border: 2px solid white;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    ">${content}</div>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+}
+
 // ── Stored route state per driver ──────────────────────────────────────────
 type RouteState = {
   fullRoute: [number, number][];     // road polyline from initial busPos → destination
@@ -260,6 +302,7 @@ type RouteState = {
   destMarker: L.Marker;
   destLabel: L.Marker;               // destination name label
   destCoord: [number, number];
+  stopMarkers: L.Marker[];           // stop pins along the route
 };
 
 function clearRoute(map: L.Map, routes: Map<string, RouteState>, id: string) {
@@ -273,7 +316,50 @@ function clearRoute(map: L.Map, routes: Map<string, RouteState>, id: string) {
   map.removeLayer(r.destMarker);
   map.removeLayer(r.destLabel);
   r.arrows.forEach((a) => map.removeLayer(a));
+  if (r.stopMarkers) {
+    r.stopMarkers.forEach((m) => map.removeLayer(m));
+  }
   routes.delete(id);
+}
+
+function isDriverLocationFresh(
+  location: { updated_at: string } | null,
+  trip: { status: string; tripDate: string; arrivalTime: string } | null,
+  isWebTracking: boolean
+) {
+  if (!location) return false;
+
+  const khDate = new Intl.DateTimeFormat("fr-CA", {
+    timeZone: "Asia/Phnom_Penh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+  if (trip && trip.tripDate < khDate) return false;
+
+  if (isWebTracking) {
+    const diff = Date.now() - new Date(location.updated_at).getTime();
+    return diff < 5 * 60 * 1000; // 5 minutes freshness
+  } else {
+    if (!trip || trip.status !== "in_progress") return false;
+    const khTime = new Intl.DateTimeFormat("fr-CA", {
+      timeZone: "Asia/Phnom_Penh",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(new Date());
+
+    const parseTimeToMinutes = (t: string) => {
+      const parts = t.split(":");
+      return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    };
+
+    const khMins = parseTimeToMinutes(khTime);
+    const arrMins = parseTimeToMinutes(trip.arrivalTime);
+    return khMins <= arrMins + 120; // 2 hours arrival buffer
+  }
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────
@@ -334,12 +420,20 @@ export default function MapView({ drivers, selectedDriverId, onDriverSelect }: P
     const fetching = fetchingRef.current;
 
     for (const driver of drivers) {
-      const isActive = driver.trip?.status === "in_progress" && !!driver.location;
+      const isFresh = isDriverLocationFresh(driver.location, driver.trip, driver.isWebTracking);
+      const isActive = driver.trip?.status === "in_progress" && !!driver.location && isFresh;
       const isSelected = driver.id === selectedDriverId;
       const existing = markers.get(driver.id);
 
       // ── No location: remove everything ──────────────────────────────────
       if (!driver.location) {
+        if (existing) { map.removeLayer(existing); markers.delete(driver.id); }
+        clearRoute(map, routes, driver.id);
+        continue;
+      }
+
+      // ── Offline and not selected: remove marker and route, then skip ──────
+      if (!isFresh && !isSelected) {
         if (existing) { map.removeLayer(existing); markers.delete(driver.id); }
         clearRoute(map, routes, driver.id);
         continue;
@@ -620,6 +714,28 @@ export default function MapView({ drivers, selectedDriverId, onDriverSelect }: P
               interactive: false,
             }).addTo(currentMap);
 
+            // Place stop markers
+            const stopMarkers: L.Marker[] = [];
+            if (driver.trip?.stops) {
+              driver.trip.stops.forEach((stop, index) => {
+                if (stop.latitude !== null && stop.longitude !== null) {
+                  const isFirst = index === 0;
+                  const isLast = index === driver.trip!.stops.length - 1;
+                  const m = L.marker([stop.latitude, stop.longitude], {
+                    icon: makeStopIcon(index, isFirst, isLast),
+                    zIndexOffset: 300,
+                  })
+                    .addTo(currentMap)
+                    .bindPopup(`
+                      <div style="font-family:system-ui;font-size:12px;padding:2px 4px;line-height:1.4;">
+                        <strong style="color:#2563EB;">Stop ${index + 1}:</strong> ${stop.name}
+                      </div>
+                    `, { closeButton: false });
+                  stopMarkers.push(m);
+                }
+              });
+            }
+
             routes.set(driver.id, {
               fullRoute: routePts,
               routeLine,
@@ -631,6 +747,7 @@ export default function MapView({ drivers, selectedDriverId, onDriverSelect }: P
               destMarker,
               destLabel,
               destCoord,
+              stopMarkers,
             });
 
             // Auto-fit to show full route (only on first load)

@@ -53,6 +53,8 @@ export function OperatorDashboardClient({
 }: OperatorDashboardClientProps) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const [greeting, setGreeting] = useState("Hello");
+  const [today, setToday] = useState("");
 
   // Modals state
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
@@ -69,6 +71,20 @@ export function OperatorDashboardClient({
 
   useEffect(() => {
     setMounted(true);
+    const hour = new Date().getHours();
+    const greet =
+      hour < 12
+        ? "Good morning"
+        : hour < 17
+        ? "Good afternoon"
+        : "Good evening";
+    const dateStr = new Date().toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    });
+    setGreeting(greet);
+    setToday(dateStr);
   }, []);
 
   // Compute stats
@@ -199,10 +215,7 @@ export function OperatorDashboardClient({
     }
   };
 
-  // Get time-aware greeting
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  // Time-aware greeting computed in useEffect on client mount
 
   return (
     <div className="space-y-6">

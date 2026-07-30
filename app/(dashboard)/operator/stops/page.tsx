@@ -36,5 +36,13 @@ export default async function OperatorStops() {
     );
   }
 
-  return <StopsClient stops={stops ?? []} />;
+  const mappedStops = (stops ?? []).map((s: any) => ({
+    id: s.id,
+    name: s.name,
+    lat: s.latitude ?? null,
+    lng: s.longitude ?? null,
+    created_at: s.created_at ?? null,
+  }));
+
+  return <StopsClient stops={mappedStops} />;
 }

@@ -6,6 +6,7 @@ interface DriverWithLocation {
   id: string;
   name: string | null;
   tripId: string;
+  isWebTracking: boolean;
   trip: {
     routeName: string;
     origin: string;
@@ -15,6 +16,12 @@ interface DriverWithLocation {
     arrivalTime: string;
     tripDate: string;
     status: string;
+    stops: {
+      name: string;
+      latitude: number | null;
+      longitude: number | null;
+      order: number;
+    }[];
   } | null;
   location: {
     latitude: number;
@@ -68,9 +75,22 @@ export default async function OperatorTrackingPage() {
     latitude: number | null;
     longitude: number | null;
     departed_at: string | null;
+    stops: {
+      name: string;
+      latitude: number | null;
+      longitude: number | null;
+      order: number;
+    }[];
   }> = {};
 
   if (allDriverIds.length > 0) {
+    const today = new Intl.DateTimeFormat("fr-CA", {
+      timeZone: "Asia/Phnom_Penh",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+
     const { data: activeTrips } = await supabase
       .from("trips")
       .select(`
@@ -78,18 +98,46 @@ export default async function OperatorTrackingPage() {
         schedules!inner(
           id, departure_time, arrival_time,
           driver_id,
-          routes!inner(name, origin, destination),
+          routes!inner(
+            id, name, origin, destination,
+            route_stops(
+              stop_order,
+              stops(name, latitude, longitude)
+            )
+          ),
           buses!inner(plate_number)
         )
       `)
+      .eq("trip_date", today)
       .in("status", ["in_progress", "scheduled"])
       .in("schedules.driver_id", allDriverIds);
 
     for (const t of activeTrips ?? []) {
       const s = Array.isArray(t.schedules) ? t.schedules[0] : t.schedules;
       if (!s?.driver_id) continue;
+      
+      const existing = tripMap[s.driver_id];
+      // Prioritize in_progress trips over scheduled trips
+      if (existing && existing.status === "in_progress" && t.status !== "in_progress") {
+        continue;
+      }
+      
       const r = s?.routes ? (Array.isArray(s.routes) ? s.routes[0] : s.routes) : null;
       const b = s?.buses ? (Array.isArray(s.buses) ? s.buses[0] : s.buses) : null;
+      
+      const rsList = r?.route_stops ?? [];
+      const mappedRouteStops = (Array.isArray(rsList) ? rsList : [rsList])
+        .map((rs: any) => {
+          const stopObj = rs.stops ? (Array.isArray(rs.stops) ? rs.stops[0] : rs.stops) : null;
+          return {
+            name: stopObj?.name ?? "",
+            latitude: (stopObj?.latitude != null) ? Number(stopObj.latitude) : null,
+            longitude: (stopObj?.longitude != null) ? Number(stopObj.longitude) : null,
+            order: rs.stop_order ?? 0,
+          };
+        })
+        .sort((a, b) => a.order - b.order);
+
       tripMap[s.driver_id] = {
         tripId: t.id,
         routeName: r?.name ?? "",
@@ -103,6 +151,7 @@ export default async function OperatorTrackingPage() {
         latitude: t.latitude ?? null,
         longitude: t.longitude ?? null,
         departed_at: t.departed_at ?? null,
+        stops: mappedRouteStops,
       };
     }
   }
@@ -139,6 +188,7 @@ export default async function OperatorTrackingPage() {
     const trip = tripMap[d.id] ?? null;
     const dl = driverLocMap[d.id] ?? null;
 
+    const isWebTracking = dl !== null;
     const location = dl ?? (trip?.latitude != null && trip?.longitude != null
       ? {
           latitude: trip.latitude as number,
@@ -153,6 +203,7 @@ export default async function OperatorTrackingPage() {
       id: d.id,
       name: d.name,
       tripId: trip?.tripId ?? "",
+      isWebTracking,
       trip: trip
         ? {
             routeName: trip.routeName,
@@ -163,6 +214,7 @@ export default async function OperatorTrackingPage() {
             arrivalTime: trip.arrivalTime,
             tripDate: trip.tripDate,
             status: trip.status,
+            stops: trip.stops,
           }
         : null,
       location,

@@ -10,6 +10,7 @@ interface DriverWithLocation {
   id: string;
   name: string | null;
   tripId: string;
+  isWebTracking: boolean;
   trip: {
     routeName: string;
     origin: string;
@@ -19,6 +20,12 @@ interface DriverWithLocation {
     arrivalTime: string;
     tripDate: string;
     status: string;
+    stops: {
+      name: string;
+      latitude: number | null;
+      longitude: number | null;
+      order: number;
+    }[];
   } | null;
   location: {
     latitude: number;
@@ -52,6 +59,46 @@ function getRelativeTime(iso: string) {
   if (mins < 1) return "Just now";
   if (mins < 60) return `${mins}m ago`;
   return `${hrs}h ${mins % 60}m ago`;
+}
+
+function isDriverLocationFresh(
+  location: { updated_at: string } | null,
+  trip: { status: string; tripDate: string; arrivalTime: string } | null,
+  isWebTracking: boolean
+) {
+  if (!location) return false;
+
+  const khDate = new Intl.DateTimeFormat("fr-CA", {
+    timeZone: "Asia/Phnom_Penh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+  if (trip && trip.tripDate < khDate) return false;
+
+  if (isWebTracking) {
+    const diff = Date.now() - new Date(location.updated_at).getTime();
+    return diff < 5 * 60 * 1000; // 5 minutes freshness
+  } else {
+    if (!trip || trip.status !== "in_progress") return false;
+    const khTime = new Intl.DateTimeFormat("fr-CA", {
+      timeZone: "Asia/Phnom_Penh",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(new Date());
+
+    const parseTimeToMinutes = (t: string) => {
+      const parts = t.split(":");
+      return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    };
+
+    const khMins = parseTimeToMinutes(khTime);
+    const arrMins = parseTimeToMinutes(trip.arrivalTime);
+    return khMins <= arrMins + 120; // 2 hours arrival buffer
+  }
 }
 
 export function TrackingClient({
@@ -115,6 +162,7 @@ export function TrackingClient({
           if (loc?.latitude != null && loc?.longitude != null) {
             d = {
               ...d,
+              isWebTracking: true,
               location: {
                 latitude: loc.latitude,
                 longitude: loc.longitude,
@@ -126,6 +174,7 @@ export function TrackingClient({
           } else if (t?.latitude != null && t?.longitude != null) {
             d = {
               ...d,
+              isWebTracking: false,
               location: {
                 latitude: t.latitude,
                 longitude: t.longitude,
@@ -147,7 +196,7 @@ export function TrackingClient({
   }, []);
 
   const activeDrivers = drivers.filter(
-    (d) => d.location && d.trip?.status === "in_progress"
+    (d) => d.location && d.trip?.status === "in_progress" && isDriverLocationFresh(d.location, d.trip, d.isWebTracking)
   );
 
   const selectedDriver = drivers.find((d) => d.id === selectedDriverId) ?? null;
@@ -192,7 +241,8 @@ export function TrackingClient({
               <p className="py-6 text-center text-sm text-gray-400">No drivers assigned</p>
             )}
             {drivers.map((d) => {
-              const isActive = d.location && d.trip?.status === "in_progress";
+              const isFresh = isDriverLocationFresh(d.location, d.trip, d.isWebTracking);
+              const isActive = d.location && d.trip?.status === "in_progress" && isFresh;
               const isSelected = selectedDriverId === d.id;
 
               return (
@@ -220,12 +270,22 @@ export function TrackingClient({
                     {d.trip && (
                       <span
                         className={`ml-auto shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                          d.trip.status === "in_progress"
+                          d.trip.status === "in_progress" && isFresh
                             ? "bg-green-100 text-green-700"
+                            : d.trip.status === "in_progress"
+                            ? "bg-amber-100 text-amber-700"
+                            : d.trip.status === "scheduled" && isFresh
+                            ? "bg-blue-100 text-blue-700"
                             : "bg-slate-100 text-slate-600"
                         }`}
                       >
-                        {d.trip.status === "in_progress" ? "Moving" : "Scheduled"}
+                        {d.trip.status === "in_progress" && isFresh
+                          ? "Moving"
+                          : d.trip.status === "in_progress"
+                          ? "Offline"
+                          : d.trip.status === "scheduled" && isFresh
+                          ? "Ready"
+                          : "Scheduled"}
                       </span>
                     )}
                   </div>
@@ -246,8 +306,8 @@ export function TrackingClient({
                       </p>
                       <p>🚌 {d.trip.busPlate} &nbsp;·&nbsp; {formatTime(d.trip.departureTime)} – {formatTime(d.trip.arrivalTime)}</p>
                       {d.location && (
-                        <p className="text-[10px] text-gray-400 mt-1">
-                          📡 Updated {getRelativeTime(d.location.updated_at)}
+                        <p className={`text-[10px] mt-1 ${isFresh ? "text-gray-400" : "text-amber-600 font-medium"}`}>
+                          {isFresh ? `📡 Updated ${getRelativeTime(d.location.updated_at)}` : `⚠ Offline (Last updated ${getRelativeTime(d.location.updated_at)})`}
                         </p>
                       )}
                     </div>

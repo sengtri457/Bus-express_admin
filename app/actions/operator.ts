@@ -268,8 +268,8 @@ export async function createStop(formData: FormData) {
 
   const { error } = await supabase.from("stops").insert({
     name,
-    lat: latRaw ? Number(latRaw) : null,
-    lng: lngRaw ? Number(lngRaw) : null,
+    latitude: latRaw ? Number(latRaw) : null,
+    longitude: lngRaw ? Number(lngRaw) : null,
   });
 
   if (error) return { error: error.message };
@@ -286,8 +286,8 @@ export async function updateStop(formData: FormData) {
     .from("stops")
     .update({
       name: formData.get("name") as string,
-      lat: latRaw ? Number(latRaw) : null,
-      lng: lngRaw ? Number(lngRaw) : null,
+      latitude: latRaw ? Number(latRaw) : null,
+      longitude: lngRaw ? Number(lngRaw) : null,
     })
     .eq("id", id);
 

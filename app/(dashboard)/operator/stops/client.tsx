@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { createStop, updateStop, deleteStop } from "@/app/actions/operator";
 import type { Stop } from "@/lib/types";
+import dynamic from "next/dynamic";
+
+const StopsMapPicker = dynamic(() => import("./stops-map-picker"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[200px] w-full rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center text-sm text-gray-400">
+      Loading map...
+    </div>
+  ),
+});
 
 interface StopsClientProps {
   stops: Stop[];
@@ -19,6 +29,36 @@ export function StopsClient({ stops }: StopsClientProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Stop | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Map Picker State (Add Stop)
+  const [addLat, setAddLat] = useState<number | null>(null);
+  const [addLng, setAddLng] = useState<number | null>(null);
+
+  // Map Picker State (Edit Stop)
+  const [editLat, setEditLat] = useState<number | null>(null);
+  const [editLng, setEditLng] = useState<number | null>(null);
+
+  // Reset coordinates when opening/closing add modal
+  useEffect(() => {
+    if (showAdd) {
+      setAddLat(11.5564); // default Phnom Penh center
+      setAddLng(104.9282);
+    } else {
+      setAddLat(null);
+      setAddLng(null);
+    }
+  }, [showAdd]);
+
+  // Set coordinates when editing state changes
+  useEffect(() => {
+    if (editing) {
+      setEditLat(editing.lat);
+      setEditLng(editing.lng);
+    } else {
+      setEditLat(null);
+      setEditLng(null);
+    }
+  }, [editing]);
 
   const filtered = stops.filter((s) =>
     s.name.toLowerCase().includes(search.toLowerCase())
@@ -140,9 +180,28 @@ export function StopsClient({ stops }: StopsClientProps) {
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Stop">
         <form action={handleAdd} className="space-y-4">
           <Input label="Stop Name" name="name" required placeholder="e.g. Central Market, Olympic Stadium" />
+          
+          <StopsMapPicker lat={addLat} lng={addLng} onChange={(la, ln) => { setAddLat(la); setAddLng(ln); }} />
+          
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Latitude" name="lat" type="number" step="any" placeholder="11.5564" />
-            <Input label="Longitude" name="lng" type="number" step="any" placeholder="104.9282" />
+            <Input 
+              label="Latitude" 
+              name="lat" 
+              type="number" 
+              step="any" 
+              placeholder="11.5564" 
+              value={addLat?.toString() ?? ""} 
+              onChange={(e) => setAddLat(e.target.value ? parseFloat(e.target.value) : null)} 
+            />
+            <Input 
+              label="Longitude" 
+              name="lng" 
+              type="number" 
+              step="any" 
+              placeholder="104.9282" 
+              value={addLng?.toString() ?? ""} 
+              onChange={(e) => setAddLng(e.target.value ? parseFloat(e.target.value) : null)} 
+            />
           </div>
           {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
           <div className="flex justify-end gap-3">
@@ -155,9 +214,26 @@ export function StopsClient({ stops }: StopsClientProps) {
       <Modal open={!!editing} onClose={() => setEditing(null)} title={`Edit - ${editing?.name ?? ""}`}>
         <form action={handleEdit} className="space-y-4">
           <Input label="Stop Name" name="name" required defaultValue={editing?.name ?? ""} />
+          
+          <StopsMapPicker lat={editLat} lng={editLng} onChange={(la, ln) => { setEditLat(la); setEditLng(ln); }} />
+          
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Latitude" name="lat" type="number" step="any" defaultValue={editing?.lat?.toString() ?? ""} />
-            <Input label="Longitude" name="lng" type="number" step="any" defaultValue={editing?.lng?.toString() ?? ""} />
+            <Input 
+              label="Latitude" 
+              name="lat" 
+              type="number" 
+              step="any" 
+              value={editLat?.toString() ?? ""} 
+              onChange={(e) => setEditLat(e.target.value ? parseFloat(e.target.value) : null)} 
+            />
+            <Input 
+              label="Longitude" 
+              name="lng" 
+              type="number" 
+              step="any" 
+              value={editLng?.toString() ?? ""} 
+              onChange={(e) => setEditLng(e.target.value ? parseFloat(e.target.value) : null)} 
+            />
           </div>
           {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div>}
           <div className="flex justify-end gap-3">
